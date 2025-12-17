@@ -134,6 +134,27 @@ def analyze_anomaly(reading: Dict) -> str:
             "**Priority:** High - Vehicle may not start. Replace battery if necessary."
         ).format(sensors["battery_voltage_v"])
     
+    # Check if readings are actually within normal ranges
+    is_normal = (
+        sensors["vibration_level_g"] <= 0.6 and
+        sensors["engine_temp_c"] <= 110 and
+        sensors["battery_voltage_v"] >= 12.0 and
+        not (sensors["engine_rpm"] > 3500 and sensors["throttle_pos_pct"] < 20) and
+        not (sensors["engine_rpm"] < 1200 and sensors["throttle_pos_pct"] > 40)
+    )
+    
+    if is_normal:
+        return (
+            "**✓ VEHICLE STATUS: HEALTHY**\n\n"
+            "**All systems operating normally.**\n\n"
+            "All sensor readings are within acceptable parameters. No maintenance action required at this time.\n\n"
+            "**Recommended Actions:**\n"
+            "1. Continue regular driving and monitoring\n"
+            "2. Follow scheduled maintenance intervals\n"
+            "3. Report any unusual sounds or behaviors\n\n"
+            "**Status:** All systems normal - No immediate action needed."
+        )
+    
     # Generic anomaly (caught by model but no specific pattern)
     return (
         "**ANOMALY DETECTED: Unusual sensor pattern.**\n\n"
@@ -223,6 +244,22 @@ def get_issue_details(reading: Dict) -> Tuple[str, str, str]:
             "Battery Failure Critical",
             f"The predictive model analysis indicates critically low battery voltage ({sensors['battery_voltage_v']:.2f}V), suggesting immediate battery or charging system failure.",
             "Schedule a service appointment immediately to test battery and alternator, and replace battery if necessary."
+        )
+    
+    # Check if readings are actually within normal ranges
+    is_normal = (
+        sensors["vibration_level_g"] <= 0.6 and
+        sensors["engine_temp_c"] <= 110 and
+        sensors["battery_voltage_v"] >= 12.0 and
+        not (sensors["engine_rpm"] > 3500 and sensors["throttle_pos_pct"] < 20) and
+        not (sensors["engine_rpm"] < 1200 and sensors["throttle_pos_pct"] > 40)
+    )
+    
+    if is_normal:
+        return (
+            "All Systems Normal",
+            "The predictive model analysis indicates all sensor readings are within acceptable parameters. Vehicle is operating normally.",
+            "Continue regular driving and monitoring. Follow scheduled maintenance intervals."
         )
     
     # Generic anomaly
