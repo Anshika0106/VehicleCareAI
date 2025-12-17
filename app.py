@@ -42,7 +42,7 @@ if "last_update_time" not in st.session_state:
 # Train model on startup
 if not st.session_state.model_trained:
     with st.spinner("Training anomaly detection model on normal vehicle data..."):
-        st.session_state.detector.train_initial_model(n_samples=500)
+        st.session_state.detector.train_initial_model(n_samples=1000)
         st.session_state.model_trained = True
         st.success("Model trained successfully!")
 
@@ -60,19 +60,36 @@ with st.sidebar:
     st.subheader("Fault Simulation")
     fault_type = st.selectbox(
         "Simulate Component Failure",
-        ["None", "Overheat", "Vibration"],
+        ["None", "Overheat", "Vibration", "Battery Failure", 
+         "Throttle Malfunction", "Engine Misfire", 
+         "Fuel System Issue", "Cooling System Failure"],
         index=0
     )
     
     if fault_type == "Overheat":
         st.session_state.simulator.inject_fault("overheat")
-        st.warning("Overheating fault active")
+        st.warning("⚠️ Overheating fault active")
     elif fault_type == "Vibration":
         st.session_state.simulator.inject_fault("vibration")
-        st.warning("Vibration fault active")
+        st.warning("⚠️ Vibration fault active")
+    elif fault_type == "Battery Failure":
+        st.session_state.simulator.inject_fault("battery_failure")
+        st.warning("⚠️ Battery failure active")
+    elif fault_type == "Throttle Malfunction":
+        st.session_state.simulator.inject_fault("throttle_malfunction")
+        st.warning("⚠️ Throttle malfunction active")
+    elif fault_type == "Engine Misfire":
+        st.session_state.simulator.inject_fault("engine_misfire")
+        st.warning("⚠️ Engine misfire active")
+    elif fault_type == "Fuel System Issue":
+        st.session_state.simulator.inject_fault("fuel_system")
+        st.warning("⚠️ Fuel system issue active")
+    elif fault_type == "Cooling System Failure":
+        st.session_state.simulator.inject_fault("cooling_system")
+        st.warning("⚠️ Cooling system failure active")
     else:
         st.session_state.simulator.inject_fault(None)
-        st.success("Normal operation")
+        st.success("✓ Normal operation")
     
     st.markdown("---")
     

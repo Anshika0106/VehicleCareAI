@@ -70,6 +70,37 @@ class VehicleSimulator:
         elif self.fault_type == "vibration":
             base_vibration = random.uniform(1.5, 2.5)  # Critical vibration
             self.last_vibration = base_vibration
+        elif self.fault_type == "battery_failure":
+            base_battery = random.uniform(11.0, 11.8)  # Low battery voltage
+            self.last_battery = base_battery
+        elif self.fault_type == "throttle_malfunction":
+            # High RPM with low throttle (throttle stuck or malfunctioning)
+            base_rpm = random.uniform(3500, 4000)
+            base_throttle = random.uniform(5, 15)  # Low throttle despite high RPM
+            self.last_rpm = base_rpm
+            self.last_throttle = base_throttle
+        elif self.fault_type == "engine_misfire":
+            # Irregular RPM patterns (engine misfiring)
+            base_rpm = random.uniform(800, 1200)  # Low, unstable RPM
+            base_vibration = random.uniform(0.6, 0.9)  # Increased vibration
+            base_temp = random.uniform(70, 85)  # Lower temp due to misfire
+            self.last_rpm = base_rpm
+            self.last_vibration = base_vibration
+            self.last_temp = base_temp
+        elif self.fault_type == "fuel_system":
+            # Fuel system issues - affects RPM and throttle response
+            base_rpm = random.uniform(600, 1000)  # Low RPM, struggling
+            base_throttle = random.uniform(40, 60)  # High throttle but low RPM
+            base_temp = random.uniform(65, 80)  # Lower temp
+            self.last_rpm = base_rpm
+            self.last_throttle = base_throttle
+            self.last_temp = base_temp
+        elif self.fault_type == "cooling_system":
+            # Cooling system failure - gradual overheating
+            base_temp = random.uniform(115, 125)  # Moderate overheating
+            base_rpm = random.uniform(2000, 2500)  # Slightly elevated RPM
+            self.last_temp = base_temp
+            self.last_rpm = base_rpm
         
         # Create reading
         reading = {
@@ -94,10 +125,18 @@ class VehicleSimulator:
             fault_type: Type of fault to inject. Options:
                 - "overheat": Spikes engine temperature > 120°C
                 - "vibration": Spikes vibration > 1.5g
+                - "battery_failure": Low battery voltage < 12V
+                - "throttle_malfunction": High RPM with low throttle position
+                - "engine_misfire": Irregular, low RPM with increased vibration
+                - "fuel_system": Low RPM despite high throttle (fuel delivery issues)
+                - "cooling_system": Moderate overheating (cooling system failure)
                 - None: Clears any active fault (normal operation)
         """
-        if fault_type not in [None, "overheat", "vibration"]:
-            raise ValueError(f"Unknown fault type: {fault_type}. Use 'overheat', 'vibration', or None")
+        valid_faults = [None, "overheat", "vibration", "battery_failure", 
+                       "throttle_malfunction", "engine_misfire", 
+                       "fuel_system", "cooling_system"]
+        if fault_type not in valid_faults:
+            raise ValueError(f"Unknown fault type: {fault_type}. Valid options: {valid_faults}")
         
         self.fault_type = fault_type
     
