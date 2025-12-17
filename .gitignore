@@ -14,4 +14,4 @@ ENV/
 htmlcov/
 .idea/
 .vscode/
-
+.cursor/

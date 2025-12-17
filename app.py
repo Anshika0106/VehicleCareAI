@@ -110,6 +110,21 @@ def render_issue_details_page():
             font-weight: bold;
             font-size: 20px;
         }
+        /* Black Schedule Service button styling */
+        div[data-testid="stButton"] > button[kind="primary"] {
+            background-color: #1a1a1a !important;
+            color: #f5f5f5 !important;
+            border: 2px solid #333 !important;
+            font-weight: bold !important;
+            padding: 12px 24px !important;
+            border-radius: 8px !important;
+            transition: all 0.3s ease !important;
+        }
+        div[data-testid="stButton"] > button[kind="primary"]:hover {
+            background-color: #333 !important;
+            color: #ffffff !important;
+            border-color: #555 !important;
+        }
         </style>
         """,
         unsafe_allow_html=True
