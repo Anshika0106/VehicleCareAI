@@ -157,10 +157,16 @@ st.markdown("Real-time vehicle telemetry monitoring and anomaly detection")
 # Auto-update logic
 if st.session_state.auto_update:
     current_time = time.time()
+    
+    # Initialize last_update_time if not set
+    if "last_update_time" not in st.session_state:
+        st.session_state.last_update_time = current_time
+    
     time_since_last_update = current_time - st.session_state.last_update_time
     
-    # Check if it's time to update
+    # Check if it's time to update and generate new reading
     if time_since_last_update >= st.session_state.update_interval:
+        # Generate new reading
         reading = st.session_state.simulator.generate_reading()
         anomaly = st.session_state.detector.detect_anomaly(reading)
         score = st.session_state.detector.get_anomaly_score(reading)
@@ -183,11 +189,19 @@ if st.session_state.auto_update:
         
         st.session_state.last_update_time = current_time
     
-    # Schedule next rerun
-    # Use a small delay to prevent excessive reruns, but respect the interval
-    time_until_next = max(0.5, min(st.session_state.update_interval - time_since_last_update, 1.0))
-    time.sleep(time_until_next)
-    st.rerun()
+    # Use JavaScript-based auto-refresh (non-blocking)
+    # Calculate time until next update (in milliseconds)
+    time_until_next = max(100, int((st.session_state.update_interval - time_since_last_update) * 1000))
+    
+    # Inject JavaScript to auto-refresh after the interval
+    refresh_script = f"""
+    <script>
+        setTimeout(function(){{
+            window.location.reload(true);
+        }}, {time_until_next});
+    </script>
+    """
+    st.markdown(refresh_script, unsafe_allow_html=True)
 
 # Display latest anomaly alert
 if st.session_state.anomalies_detected:
