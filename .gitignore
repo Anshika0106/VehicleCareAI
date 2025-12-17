@@ -15,3 +15,6 @@ htmlcov/
 .idea/
 .vscode/
 .cursor/
+trained_lstm_model.keras
+trained_xgb_model.pkl
+trained_scaler.pkl  
