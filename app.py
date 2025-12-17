@@ -80,97 +80,294 @@ if not st.session_state.model_trained:
 
 # Helper functions for page rendering
 def render_issue_details_page():
-    """Render the Issue Detected page based on wireframe."""
+    """Render the Issue Detected page with modern, polished design."""
+    
+    # Get issue data first
+    if st.session_state.current_issue:
+        issue = st.session_state.current_issue
+        reading = issue["reading"]
+        issue_title, issue_description, recommended_action = get_issue_details(reading)
+        severity = get_severity_level(reading)
+        
+        # Determine severity styling
+        severity_colors = {
+            "Critical": {"bg": "#fee2e2", "border": "#ef4444", "text": "#dc2626", "icon": "🔴"},
+            "High": {"bg": "#fef3c7", "border": "#f59e0b", "text": "#d97706", "icon": "🟠"},
+            "Medium": {"bg": "#fef9c3", "border": "#eab308", "text": "#ca8a04", "icon": "🟡"},
+            "Low": {"bg": "#dcfce7", "border": "#22c55e", "text": "#16a34a", "icon": "🟢"}
+        }
+        sev_style = severity_colors.get(severity, severity_colors["Medium"])
+    else:
+        issue_title = "No Issue"
+        issue_description = "No issue data available."
+        recommended_action = "Return to dashboard."
+        severity = "Unknown"
+        sev_style = {"bg": "#f3f4f6", "border": "#9ca3af", "text": "#6b7280", "icon": "⚪"}
+    
     st.markdown(
-        """
+        f"""
         <style>
-        .issue-header {
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
+        
+        .issue-page-container {{
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }}
+        
+        .issue-page-header {{
             text-align: center;
-            font-size: 32px;
-            font-weight: bold;
-            margin-bottom: 30px;
-        }
-        .issue-box {
-            border: 2px solid #333;
-            padding: 20px;
-            margin: 20px 0;
-            background-color: #f9f9f9;
-        }
-        .issue-title {
+            margin-bottom: 40px;
+            padding-top: 20px;
+        }}
+        
+        .issue-page-logo {{
+            font-family: 'DM Sans', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+        }}
+        
+        .issue-page-subtitle {{
+            font-family: 'DM Sans', sans-serif;
+            color: #64748b;
+            font-size: 14px;
+            margin-top: 4px;
+        }}
+        
+        .issue-card {{
+            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 16px;
+            padding: 28px 32px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s ease;
+        }}
+        
+        .issue-card:hover {{
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+            transform: translateY(-2px);
+        }}
+        
+        .issue-card-header {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e2e8f0;
+        }}
+        
+        .issue-card-icon {{
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+        }}
+        
+        .issue-card-icon.alert {{
+            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+        }}
+        
+        .issue-card-icon.info {{
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        }}
+        
+        .issue-card-icon.action {{
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+        }}
+        
+        .issue-card-label {{
+            font-family: 'DM Sans', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #64748b;
+        }}
+        
+        .issue-card-title {{
+            font-family: 'DM Sans', sans-serif;
             font-size: 20px;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        .issue-description {
-            color: #666;
-            line-height: 1.6;
-        }
-        .severity-label {
-            text-align: right;
-            font-weight: bold;
-            font-size: 20px;
-        }
-        /* Black Schedule Service button styling */
-        div[data-testid="stButton"] > button[kind="primary"] {
-            background-color: #1a1a1a !important;
-            color: #f5f5f5 !important;
-            border: 2px solid #333 !important;
-            font-weight: bold !important;
-            padding: 12px 24px !important;
-            border-radius: 8px !important;
-            transition: all 0.3s ease !important;
-        }
-        div[data-testid="stButton"] > button[kind="primary"]:hover {
-            background-color: #333 !important;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 4px;
+        }}
+        
+        .issue-card-description {{
+            font-family: 'DM Sans', sans-serif;
+            color: #475569;
+            font-size: 15px;
+            line-height: 1.7;
+        }}
+        
+        .severity-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: {sev_style['bg']};
+            border: 2px solid {sev_style['border']};
+            color: {sev_style['text']};
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 700;
+            font-size: 18px;
+        }}
+        
+        .severity-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+        }}
+        
+        .severity-label-text {{
+            font-family: 'DM Sans', sans-serif;
+            color: #64748b;
+            font-size: 15px;
+            font-weight: 500;
+        }}
+        
+        .action-highlight {{
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border-left: 4px solid #0284c7;
+            padding: 16px 20px;
+            border-radius: 0 12px 12px 0;
+            margin-top: 12px;
+        }}
+        
+        .action-highlight p {{
+            font-family: 'DM Sans', sans-serif;
+            color: #0c4a6e;
+            font-size: 15px;
+            line-height: 1.7;
+            margin: 0;
+        }}
+        
+        /* Schedule button styling */
+        div[data-testid="stButton"] > button[kind="primary"] {{
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
             color: #ffffff !important;
-            border-color: #555 !important;
-        }
+            border: none !important;
+            font-family: 'DM Sans', sans-serif !important;
+            font-weight: 600 !important;
+            font-size: 16px !important;
+            padding: 16px 32px !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 14px rgba(30, 41, 59, 0.25) !important;
+            transition: all 0.3s ease !important;
+            letter-spacing: 0.3px !important;
+        }}
+        
+        div[data-testid="stButton"] > button[kind="primary"]:hover {{
+            background: linear-gradient(135deg, #334155 0%, #475569 100%) !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 20px rgba(30, 41, 59, 0.3) !important;
+        }}
+        
+        /* Back button styling */
+        div[data-testid="stButton"] > button[kind="secondary"] {{
+            background: transparent !important;
+            color: #64748b !important;
+            border: 2px solid #e2e8f0 !important;
+            font-family: 'DM Sans', sans-serif !important;
+            font-weight: 500 !important;
+            padding: 10px 20px !important;
+            border-radius: 10px !important;
+            transition: all 0.2s ease !important;
+        }}
+        
+        div[data-testid="stButton"] > button[kind="secondary"]:hover {{
+            background: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+            color: #334155 !important;
+        }}
         </style>
         """,
         unsafe_allow_html=True
     )
     
+    # Container for centering
+    st.markdown('<div class="issue-page-container">', unsafe_allow_html=True)
+    
     # Back button
-    if st.button("← Back"):
+    if st.button("← Back", type="secondary"):
         st.session_state.current_page = "dashboard"
         st.session_state.show_notification = False
         st.rerun()
     
-    st.markdown('<div class="issue-header">VehicleCare AI</div>', unsafe_allow_html=True)
+    # Header
+    st.markdown('''
+        <div class="issue-page-header">
+            <div class="issue-page-logo">VehicleCare AI</div>
+            <div class="issue-page-subtitle">Predictive Maintenance Report</div>
+        </div>
+    ''', unsafe_allow_html=True)
     
     if st.session_state.current_issue:
-        issue = st.session_state.current_issue
-        reading = issue["reading"]
+        # Issue Detected Card
+        st.markdown(f'''
+            <div class="issue-card">
+                <div class="issue-card-header">
+                    <div class="issue-card-icon alert">⚠️</div>
+                    <div>
+                        <div class="issue-card-label">Issue Detected</div>
+                        <div class="issue-card-title">{issue_title}</div>
+                    </div>
+                </div>
+                <div class="issue-card-description">{issue_description}</div>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        # Get structured issue details
-        issue_title, issue_description, recommended_action = get_issue_details(reading)
-        severity = get_severity_level(reading)
+        # Severity Card
+        st.markdown(f'''
+            <div class="issue-card">
+                <div class="issue-card-header">
+                    <div class="issue-card-icon info">📊</div>
+                    <div>
+                        <div class="issue-card-label">Diagnostic Analysis</div>
+                        <div class="issue-card-title">Issue Details</div>
+                    </div>
+                </div>
+                <div class="severity-row">
+                    <span class="severity-label-text">Severity Level</span>
+                    <span class="severity-badge">{sev_style['icon']} {severity}</span>
+                </div>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        # Issue Detected section
-        st.markdown('<div class="issue-box">', unsafe_allow_html=True)
-        st.markdown('<div class="issue-title">Issue Detected</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="issue-title" style="margin-top: 15px;">{issue_title}</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="issue-description">{issue_description}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Recommended Action Card
+        st.markdown(f'''
+            <div class="issue-card">
+                <div class="issue-card-header">
+                    <div class="issue-card-icon action">🔧</div>
+                    <div>
+                        <div class="issue-card-label">Next Steps</div>
+                        <div class="issue-card-title">Recommended Action</div>
+                    </div>
+                </div>
+                <div class="action-highlight">
+                    <p>{recommended_action}</p>
+                </div>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        # Issue Details section
-        st.markdown('<div class="issue-box">', unsafe_allow_html=True)
-        st.markdown('<div class="issue-title">Issue Details</div>', unsafe_allow_html=True)
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            st.markdown("**Severity Level:**")
-        with col2:
-            st.markdown(f'<div class="severity-label">{severity}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Recommended Action section
-        st.markdown('<div class="issue-box">', unsafe_allow_html=True)
-        st.markdown('<div class="issue-title">Recommended Action</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="issue-description">{recommended_action}</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Schedule Service button with black styling
-        
+        # Schedule Service Button
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("📅 Schedule Service Appointment", type="primary", use_container_width=True):
+            st.session_state.current_page = "schedule_service"
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_schedule_service_page():
@@ -267,121 +464,268 @@ def render_schedule_service_page():
 
 
 def render_confirmation_page():
-    """Render the Appointment Confirmation page based on wireframe."""
+    """Render the Appointment Confirmation page with modern, polished design."""
     st.markdown(
         """
         <style>
-        .confirmation-header {
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        
+        .confirm-page-container {
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .confirm-header {
             text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .confirm-logo {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .confirm-title {
+            font-family: 'DM Sans', sans-serif;
             font-size: 32px;
-            font-weight: bold;
-            margin-bottom: 30px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 24px;
+            margin-bottom: 8px;
         }
-        .status-box {
-            border: 2px solid #333;
-            padding: 20px;
-            margin: 20px 0;
-            background-color: #e8e8e8;
+        
+        .confirm-subtitle {
+            font-family: 'DM Sans', sans-serif;
+            color: #64748b;
+            font-size: 15px;
+        }
+        
+        .status-banner {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 20px 32px;
+            border-radius: 16px;
             text-align: center;
-            font-size: 24px;
-            font-weight: bold;
+            margin-bottom: 28px;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.25);
         }
-        .details-box {
-            border: 2px solid #333;
-            padding: 20px;
-            margin: 20px 0;
+        
+        .status-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
         }
-        .detail-row {
+        
+        .status-text {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        
+        .details-card {
+            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 16px;
+            padding: 28px 32px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+        }
+        
+        .details-card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .details-card-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+        }
+        
+        .details-card-title {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        
+        .details-row {
             display: flex;
             justify-content: space-between;
-            margin: 10px 0;
+            align-items: flex-start;
+            padding: 14px 0;
+            border-bottom: 1px solid #f1f5f9;
         }
-        .detail-label {
-            color: #666;
+        
+        .details-row:last-child {
+            border-bottom: none;
         }
-        .detail-value {
-            font-weight: bold;
+        
+        .details-label {
+            font-family: 'DM Sans', sans-serif;
+            color: #64748b;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .details-value {
+            font-family: 'DM Sans', sans-serif;
+            color: #1e293b;
+            font-size: 15px;
+            font-weight: 600;
             text-align: right;
+            max-width: 60%;
         }
-        .info-box {
-            background-color: #f0f0f0;
-            padding: 15px;
-            margin: 20px 0;
+        
+        .info-banner {
+            background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
+            border-left: 4px solid #eab308;
+            padding: 18px 24px;
+            border-radius: 0 12px 12px 0;
+            margin-bottom: 28px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        
+        .info-banner-icon {
+            font-size: 24px;
+        }
+        
+        .info-banner-text {
+            font-family: 'DM Sans', sans-serif;
+            color: #854d0e;
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 1.5;
+        }
+        
+        /* Button styling */
+        div[data-testid="stButton"] > button {
+            font-family: 'DM Sans', sans-serif !important;
+            font-weight: 600 !important;
+            font-size: 15px !important;
+            padding: 14px 24px !important;
+            border-radius: 12px !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        div[data-testid="stButton"] > button[kind="secondary"] {
+            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%) !important;
+            color: #334155 !important;
+            border: 2px solid #e2e8f0 !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
+        }
+        
+        div[data-testid="stButton"] > button[kind="secondary"]:hover {
+            background: #f1f5f9 !important;
+            border-color: #cbd5e1 !important;
+            transform: translateY(-1px) !important;
+        }
+        
+        div[data-testid="stButton"] > button[kind="primary"] {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
+            color: #ffffff !important;
+            border: none !important;
+            box-shadow: 0 4px 14px rgba(30, 41, 59, 0.25) !important;
+        }
+        
+        div[data-testid="stButton"] > button[kind="primary"]:hover {
+            background: linear-gradient(135deg, #334155 0%, #475569 100%) !important;
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 20px rgba(30, 41, 59, 0.3) !important;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
     
-    st.markdown('<div class="confirmation-header">Appointment Confirmation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="confirm-page-container">', unsafe_allow_html=True)
+    
+    # Header
+    st.markdown('''
+        <div class="confirm-header">
+            <div class="confirm-logo">VehicleCare AI</div>
+            <div class="confirm-title">Appointment Confirmed!</div>
+            <div class="confirm-subtitle">Your service appointment has been successfully scheduled</div>
+        </div>
+    ''', unsafe_allow_html=True)
     
     if st.session_state.latest_appointment:
         appointment = st.session_state.latest_appointment
         
-        # Status box
-        st.markdown(f'<div class="status-box">Status: {appointment["status"]}</div>', unsafe_allow_html=True)
+        # Status Banner
+        st.markdown('''
+            <div class="status-banner">
+                <div class="status-icon">✓</div>
+                <div class="status-text">Status: Confirmed</div>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        # Appointment Details
-        st.markdown('<div class="details-box">', unsafe_allow_html=True)
-        st.markdown('<div style="font-size: 20px; font-weight: bold; margin-bottom: 15px;">Appointment Details</div>', unsafe_allow_html=True)
-        
-        # Service Center
-        st.markdown(
-            f'<div class="detail-row">'
-            f'<span class="detail-label">Service Center:</span>'
-            f'<span class="detail-value">{appointment["service_center"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-        
-        # Service Type
-        st.markdown(
-            f'<div class="detail-row">'
-            f'<span class="detail-label">Service Type:</span>'
-            f'<span class="detail-value">{appointment["service_type"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-        
-        # Date
+        # Appointment Details Card
         date_str = appointment["date"].strftime("%A, %B %d, %Y")
-        st.markdown(
-            f'<div class="detail-row">'
-            f'<span class="detail-label">Date:</span>'
-            f'<span class="detail-value">{date_str}</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown(f'''
+            <div class="details-card">
+                <div class="details-card-header">
+                    <div class="details-card-icon">📋</div>
+                    <div class="details-card-title">Appointment Details</div>
+                </div>
+                <div class="details-row">
+                    <span class="details-label">Service Center</span>
+                    <span class="details-value">{appointment["service_center"]}</span>
+                </div>
+                <div class="details-row">
+                    <span class="details-label">Service Type</span>
+                    <span class="details-value">{appointment["service_type"]}</span>
+                </div>
+                <div class="details-row">
+                    <span class="details-label">Date</span>
+                    <span class="details-value">{date_str}</span>
+                </div>
+                <div class="details-row">
+                    <span class="details-label">Time</span>
+                    <span class="details-value">{appointment["time"]}</span>
+                </div>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        # Time
-        st.markdown(
-            f'<div class="detail-row">'
-            f'<span class="detail-label">Time:</span>'
-            f'<span class="detail-value">{appointment["time"]}</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+        # Info Banner
+        st.markdown('''
+            <div class="info-banner">
+                <span class="info-banner-icon">💡</span>
+                <span class="info-banner-text">Please arrive 10 minutes early and bring your vehicle registration documents.</span>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Information box
-        st.markdown(
-            '<div class="info-box">Your appointment has been confirmed. Please arrive 10 minutes early.</div>',
-            unsafe_allow_html=True
-        )
-        
-        # Buttons
+        # Action Buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("View Appointment", use_container_width=True):
+            if st.button("📄 View Appointments", type="secondary", use_container_width=True):
                 st.session_state.current_page = "appointments"
                 st.rerun()
         
         with col2:
-            if st.button("Back to Dashboard", use_container_width=True):
+            if st.button("🏠 Back to Dashboard", type="primary", use_container_width=True):
                 st.session_state.current_page = "dashboard"
                 st.session_state.show_notification = False
                 st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_vehicle_health_dashboard():
