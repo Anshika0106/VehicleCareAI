@@ -133,10 +133,6 @@ st.markdown("""
         font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     
-    /* Hide Streamlit Branding */
-    #MainMenu, footer, header {
-        visibility: hidden;
-    }
     
     /* Custom Scrollbar */
     ::-webkit-scrollbar {
