@@ -3,7 +3,7 @@ Maintenance Agent
 AI agent that interprets anomalies and generates maintenance recommendations.
 """
 
-from typing import Dict
+from typing import Dict, Tuple
 
 
 def analyze_anomaly(reading: Dict) -> str:
@@ -147,4 +147,198 @@ def analyze_anomaly(reading: Dict) -> str:
         "6. Verify all sensors are calibrated correctly\n\n"
         "**Priority:** Medium - Requires diagnostic investigation."
     )
+
+
+def get_issue_details(reading: Dict) -> Tuple[str, str, str]:
+    """
+    Get structured issue details for anomaly notification.
+    
+    Args:
+        reading: Dictionary containing vehicle_id, timestamp, and sensor readings
+        
+    Returns:
+        Tuple of (issue_title, issue_description, recommended_action)
+    """
+    sensors = reading["sensors"]
+    
+    # Check for critical vibration
+    if sensors["vibration_level_g"] > 1.0:
+        return (
+            "Mechanical Looseness Detected",
+            f"The predictive model analysis indicates excessive vibration levels ({sensors['vibration_level_g']:.2f}g) in the vehicle, suggesting potential mechanical looseness in engine mounts, suspension components, or wheel assemblies.",
+            "Schedule a service appointment immediately to inspect engine mounts, piston rings, connecting rod bearings, and suspension components."
+        )
+    
+    # Check for overheating
+    if sensors["engine_temp_c"] > 120:
+        return (
+            "Coolant System Failure",
+            f"The predictive model analysis indicates critically high engine temperature ({sensors['engine_temp_c']:.1f}°C), suggesting coolant system failure or thermostat malfunction.",
+            "Schedule a service appointment immediately to inspect radiator fluid levels, coolant hoses, thermostat, and water pump operation."
+        )
+    
+    # Check for battery issues
+    if sensors["battery_voltage_v"] < 12.0:
+        return (
+            "Battery Health Deterioration",
+            f"The predictive model analysis indicates an increasingly low battery voltage ({sensors['battery_voltage_v']:.2f}V) in the primary vehicle battery, suggesting failure potential within the next 4-6 weeks.",
+            "Schedule a service appointment immediately to test battery capacity and replacement if necessary."
+        )
+    
+    # Check for unusual RPM patterns (throttle malfunction)
+    if sensors["engine_rpm"] > 3500 and sensors["throttle_pos_pct"] < 20:
+        return (
+            "Throttle System Malfunction",
+            f"The predictive model analysis indicates high RPM ({sensors['engine_rpm']:.0f}) with low throttle position ({sensors['throttle_pos_pct']}%), suggesting throttle body sticking or malfunction.",
+            "Schedule a service appointment immediately to inspect throttle body, idle air control valve, and throttle position sensor calibration."
+        )
+    
+    # Check for engine misfire
+    if sensors["engine_rpm"] < 1200 and sensors["vibration_level_g"] > 0.6:
+        return (
+            "Engine Misfire Detected",
+            f"The predictive model analysis indicates low RPM ({sensors['engine_rpm']:.0f}) with elevated vibration ({sensors['vibration_level_g']:.2f}g), suggesting engine cylinder misfiring.",
+            "Schedule a service appointment immediately to check spark plugs, ignition coils, fuel injectors, and engine compression."
+        )
+    
+    # Check for fuel system issues
+    if sensors["engine_rpm"] < 1200 and sensors["throttle_pos_pct"] > 40:
+        return (
+            "Fuel System Malfunction",
+            f"The predictive model analysis indicates low RPM ({sensors['engine_rpm']:.0f}) despite high throttle position ({sensors['throttle_pos_pct']}%), suggesting fuel delivery problems.",
+            "Schedule a service appointment immediately to check fuel pump pressure, fuel filter, and fuel injector operation."
+        )
+    
+    # Check for moderate overheating (cooling system issues)
+    if 110 < sensors["engine_temp_c"] <= 120:
+        return (
+            "Cooling System Failure",
+            f"The predictive model analysis indicates elevated engine temperature ({sensors['engine_temp_c']:.1f}°C), suggesting cooling system compromise or radiator blockage.",
+            "Schedule a service appointment immediately to check coolant levels, radiator condition, fan operation, and water pump functionality."
+        )
+    
+    # Check for critical battery voltage
+    if sensors["battery_voltage_v"] < 11.5:
+        return (
+            "Battery Failure Critical",
+            f"The predictive model analysis indicates critically low battery voltage ({sensors['battery_voltage_v']:.2f}V), suggesting immediate battery or charging system failure.",
+            "Schedule a service appointment immediately to test battery and alternator, and replace battery if necessary."
+        )
+    
+    # Generic anomaly
+    return (
+        "Unusual Sensor Pattern Detected",
+        "The predictive model analysis indicates multiple sensor readings outside normal parameters, suggesting potential component degradation or sensor calibration issues.",
+        "Schedule a service appointment to perform comprehensive vehicle inspection and diagnostic scan."
+    )
+
+
+def get_severity_level(reading: Dict) -> str:
+    """
+    Determine the severity level of an anomaly.
+    
+    Args:
+        reading: Dictionary containing vehicle_id, timestamp, and sensor readings
+        
+    Returns:
+        Severity level: "Critical", "Major", or "Minor"
+    """
+    sensors = reading["sensors"]
+    
+    # Critical conditions
+    if (sensors["vibration_level_g"] > 1.0 or 
+        sensors["engine_temp_c"] > 120 or 
+        sensors["battery_voltage_v"] < 11.5 or
+        (sensors["engine_rpm"] > 3500 and sensors["throttle_pos_pct"] < 20)):
+        return "Critical"
+    
+    # Major conditions
+    if (sensors["battery_voltage_v"] < 12.0 or
+        sensors["engine_temp_c"] > 110 or
+        sensors["vibration_level_g"] > 0.6 or
+        (sensors["engine_rpm"] < 1200 and sensors["throttle_pos_pct"] > 40)):
+        return "Major"
+    
+    # Minor/default
+    return "Minor"
+
+
+def calculate_health_score(reading: Dict) -> int:
+    """
+    Calculate overall vehicle health score (0-100).
+    
+    Args:
+        reading: Dictionary containing vehicle_id, timestamp, and sensor readings
+        
+    Returns:
+        Health score (0-100, where 100 is perfect health)
+    """
+    sensors = reading["sensors"]
+    score = 100
+    
+    # Deduct points for temperature issues
+    if sensors["engine_temp_c"] > 105:
+        score -= min(30, (sensors["engine_temp_c"] - 105) * 2)
+    
+    # Deduct points for vibration issues
+    if sensors["vibration_level_g"] > 0.4:
+        score -= min(25, (sensors["vibration_level_g"] - 0.4) * 40)
+    
+    # Deduct points for battery issues
+    if sensors["battery_voltage_v"] < 13.5:
+        score -= min(20, (13.5 - sensors["battery_voltage_v"]) * 10)
+    elif sensors["battery_voltage_v"] > 14.5:
+        score -= min(15, (sensors["battery_voltage_v"] - 14.5) * 10)
+    
+    # Deduct points for RPM issues
+    if sensors["engine_rpm"] > 3000:
+        score -= min(15, (sensors["engine_rpm"] - 3000) * 0.01)
+    elif sensors["engine_rpm"] < 800:
+        score -= min(15, (800 - sensors["engine_rpm"]) * 0.02)
+    
+    return max(0, int(score))
+
+
+def get_predicted_issue(reading: Dict) -> str:
+    """
+    Get a short description of the predicted issue.
+    
+    Args:
+        reading: Dictionary containing vehicle_id, timestamp, and sensor readings
+        
+    Returns:
+        Short issue description
+    """
+    sensors = reading["sensors"]
+    
+    if sensors["battery_voltage_v"] < 12.5:
+        return "Low Battery Voltage detected in near future"
+    elif sensors["engine_temp_c"] > 105:
+        return "Engine Overheating risk detected"
+    elif sensors["vibration_level_g"] > 0.4:
+        return "Mechanical vibration issue detected"
+    elif sensors["engine_rpm"] > 3000:
+        return "Engine stress detected"
+    else:
+        return "Minor sensor anomalies detected"
+
+
+def get_risk_level(reading: Dict) -> str:
+    """
+    Get the risk level for the predicted issue.
+    
+    Args:
+        reading: Dictionary containing vehicle_id, timestamp, and sensor readings
+        
+    Returns:
+        Risk level: "High", "Medium", or "Low"
+    """
+    severity = get_severity_level(reading)
+    
+    if severity == "Critical":
+        return "High"
+    elif severity == "Major":
+        return "High"
+    else:
+        return "Medium"
 
