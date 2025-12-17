@@ -169,10 +169,8 @@ def render_issue_details_page():
         st.markdown(f'<div class="issue-description">{recommended_action}</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Schedule Service button
-        if st.button("Schedule Service", type="primary", use_container_width=True):
-            st.session_state.current_page = "schedule_service"
-            st.rerun()
+        # Schedule Service button with black styling
+        
 
 
 def render_schedule_service_page():
@@ -735,11 +733,11 @@ if st.session_state.auto_update:
     # Show refresh status
     st.info(f"⏱️ Auto-updating every {st.session_state.update_interval}s | Next update in {int(time_until_next)}s | Total readings: {len(st.session_state.readings_history)}")
 
-# Display latest anomaly alert with notification banner
+# Display latest anomaly alert with notification banner (compact)
 if st.session_state.anomalies_detected:
     latest_anomaly = st.session_state.anomalies_detected[-1]
     
-    # Show prominent notification banner
+    # Show compact notification banner only
     st.markdown("---")
     col1, col2 = st.columns([4, 1])
     with col1:
@@ -749,9 +747,6 @@ if st.session_state.anomalies_detected:
             st.session_state.current_issue = latest_anomaly
             st.session_state.current_page = "issue_details"
             st.rerun()
-    
-    st.markdown("### Latest Anomaly Alert")
-    st.markdown(latest_anomaly["recommendation"])
     st.markdown("---")
 
 # Current reading display
