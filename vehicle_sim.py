@@ -1,6 +1,7 @@
 """
 Vehicle Telemetry Simulator
 Generates realistic vehicle sensor data for testing and prototyping.
+All sensors are interconnected to simulate realistic physical relationships.
 """
 
 import random
@@ -9,7 +10,16 @@ from typing import Dict, Optional
 
 
 class VehicleSimulator:
-    """Simulates vehicle telemetry data generation."""
+    """
+    Simulates vehicle telemetry data generation with physically realistic
+    interconnected sensor values.
+    
+    Physical Relationships:
+    - Throttle Position → drives RPM (more throttle = higher RPM)
+    - RPM over time → affects Temperature (high RPM heats up, idle cools down)
+    - RPM → affects Vibration (higher RPM = more vibration)
+    - Electrical Load → affects Battery Voltage (slight drain under load)
+    """
     
     def __init__(self, vehicle_id: str = "HERO-MNM-01"):
         """
@@ -20,98 +30,141 @@ class VehicleSimulator:
         """
         self.vehicle_id = vehicle_id
         self.fault_type: Optional[str] = None
+        
         # State variables for realistic data correlation
-        self.last_rpm = 2000.0
-        self.last_temp = 90.0
-        self.last_vibration = 0.25
-        self.last_throttle = 30
-        self.last_battery = 14.0
+        self.throttle = 25.0  # Driver input (0-100%)
+        self.rpm = 1000.0  # Engine RPM (follows throttle)
+        self.temperature = 85.0  # Engine temp (follows RPM over time)
+        self.vibration = 0.15  # Vibration (follows RPM)
+        self.battery = 14.0  # Battery voltage
+        
+        # Target temperature for cooling (ambient/idle temp)
+        self.idle_temp = 82.0
         
     def generate_reading(self) -> Dict:
         """
-        Generate a single telemetry reading with realistic sensor values.
-        Data is correlated to previous readings for realistic behavior.
+        Generate a single telemetry reading with realistic interconnected sensor values.
+        
+        The chain of causation:
+        1. Throttle changes (simulates driver input)
+        2. RPM responds to throttle (with some lag/smoothing)
+        3. Temperature responds to RPM (heat buildup/cooling)
+        4. Vibration responds to RPM
+        5. Battery responds to electrical load
         
         Returns:
             Dictionary containing vehicle_id, timestamp, and sensor readings
         """
-        # Generate correlated data based on previous state
-        # RPM changes gradually (momentum)
-        rpm_change = random.uniform(-200, 200)
-        base_rpm = max(800, min(3200, self.last_rpm + rpm_change))
-        self.last_rpm = base_rpm
+        # ============================================
+        # STEP 1: Throttle Position (Driver Input)
+        # ============================================
+        # Simulate realistic driving: gradual changes with occasional quick moves
+        if random.random() < 0.1:  # 10% chance of bigger throttle change
+            throttle_change = random.uniform(-20, 20)
+        else:
+            throttle_change = random.uniform(-8, 8)
         
-        # Temperature correlates with RPM (higher RPM = higher temp)
-        temp_base = 75 + (base_rpm / 3000) * 30  # 75-105°C range based on RPM
-        temp_variation = random.uniform(-3, 3)
-        base_temp = max(75, min(110, temp_base + temp_variation))
-        self.last_temp = base_temp
+        self.throttle = max(0, min(100, self.throttle + throttle_change))
         
-        # Vibration correlates with RPM and throttle
-        vib_base = 0.1 + (base_rpm / 3000) * 0.3  # 0.1-0.4g range
-        vib_variation = random.uniform(-0.05, 0.05)
-        base_vibration = max(0.05, min(0.45, vib_base + vib_variation))
-        self.last_vibration = base_vibration
+        # ============================================
+        # STEP 2: RPM responds to Throttle
+        # ============================================
+        # Target RPM based on throttle position
+        # Idle (0% throttle) = ~800 RPM, Full throttle (100%) = ~3500 RPM
+        target_rpm = 800 + (self.throttle / 100) * 2700
         
-        # Throttle position (more realistic driving pattern)
-        throttle_change = random.uniform(-15, 15)
-        base_throttle = max(0, min(100, self.last_throttle + throttle_change))
-        self.last_throttle = base_throttle
+        # RPM moves toward target with some lag (engine response time)
+        # Add small random variation for realism
+        rpm_response_rate = 0.3  # How quickly RPM responds (0-1)
+        rpm_noise = random.uniform(-50, 50)
+        self.rpm = self.rpm + (target_rpm - self.rpm) * rpm_response_rate + rpm_noise
+        self.rpm = max(750, min(3500, self.rpm))
         
-        # Battery voltage (relatively stable, slight variation)
-        battery_change = random.uniform(-0.1, 0.1)
-        base_battery = max(13.0, min(14.8, self.last_battery + battery_change))
-        self.last_battery = base_battery
+        # ============================================
+        # STEP 3: Temperature responds to RPM (thermal dynamics)
+        # ============================================
+        # Higher RPM generates more heat, idle/low RPM allows cooling
+        # Heat generation is proportional to RPM^2 (power output)
+        heat_generation = ((self.rpm - 800) / 2700) ** 1.5 * 0.8  # 0 to 0.8 scale
         
-        # Apply fault injection if active
+        # Cooling is proportional to how much above ambient we are
+        cooling_rate = (self.temperature - self.idle_temp) * 0.05
+        
+        # Net temperature change
+        temp_change = heat_generation - cooling_rate + random.uniform(-0.5, 0.5)
+        self.temperature = self.temperature + temp_change
+        
+        # Clamp to realistic range (ambient to slightly warm)
+        self.temperature = max(75, min(105, self.temperature))
+        
+        # ============================================
+        # STEP 4: Vibration responds to RPM
+        # ============================================
+        # Base vibration increases with RPM
+        # Also slight increase with throttle (engine load)
+        base_vib = 0.08 + (self.rpm / 3500) * 0.25  # 0.08g at idle, up to 0.33g at high RPM
+        load_vib = (self.throttle / 100) * 0.05  # Additional vibration from load
+        vib_noise = random.uniform(-0.02, 0.02)
+        
+        self.vibration = base_vib + load_vib + vib_noise
+        self.vibration = max(0.05, min(0.40, self.vibration))
+        
+        # ============================================
+        # STEP 5: Battery responds to electrical load
+        # ============================================
+        # Higher RPM = alternator charging better
+        # Higher electrical load (throttle as proxy) = slight drain
+        alternator_output = 13.5 + (self.rpm / 3500) * 1.3  # 13.5V at idle, 14.8V at high RPM
+        electrical_load = (self.throttle / 100) * 0.3  # Load from accessories
+        battery_noise = random.uniform(-0.05, 0.05)
+        
+        target_battery = alternator_output - electrical_load
+        self.battery = self.battery + (target_battery - self.battery) * 0.2 + battery_noise
+        self.battery = max(13.2, min(14.8, self.battery))
+        
+        # Start with the interconnected normal values
+        final_rpm = self.rpm
+        final_temp = self.temperature
+        final_vibration = self.vibration
+        final_throttle = self.throttle
+        final_battery = self.battery
+        
+        # Apply fault injection if active (override specific values)
         if self.fault_type == "overheat":
-            base_temp = random.uniform(120, 140)  # Critical overheating
-            self.last_temp = base_temp
+            final_temp = random.uniform(120, 140)  # Critical overheating
         elif self.fault_type == "vibration":
-            base_vibration = random.uniform(1.5, 2.5)  # Critical vibration
-            self.last_vibration = base_vibration
+            final_vibration = random.uniform(1.5, 2.5)  # Critical vibration
         elif self.fault_type == "battery_failure":
-            base_battery = random.uniform(11.0, 11.8)  # Low battery voltage
-            self.last_battery = base_battery
+            final_battery = random.uniform(11.0, 11.8)  # Low battery voltage
         elif self.fault_type == "throttle_malfunction":
             # High RPM with low throttle (throttle stuck or malfunctioning)
-            base_rpm = random.uniform(3500, 4000)
-            base_throttle = random.uniform(5, 15)  # Low throttle despite high RPM
-            self.last_rpm = base_rpm
-            self.last_throttle = base_throttle
+            final_rpm = random.uniform(3500, 4000)
+            final_throttle = random.uniform(5, 15)  # Low throttle despite high RPM
         elif self.fault_type == "engine_misfire":
             # Irregular RPM patterns (engine misfiring)
-            base_rpm = random.uniform(800, 1200)  # Low, unstable RPM
-            base_vibration = random.uniform(0.6, 0.9)  # Increased vibration
-            base_temp = random.uniform(70, 85)  # Lower temp due to misfire
-            self.last_rpm = base_rpm
-            self.last_vibration = base_vibration
-            self.last_temp = base_temp
+            final_rpm = random.uniform(800, 1200)  # Low, unstable RPM
+            final_vibration = random.uniform(0.6, 0.9)  # Increased vibration
+            final_temp = random.uniform(70, 85)  # Lower temp due to misfire
         elif self.fault_type == "fuel_system":
             # Fuel system issues - affects RPM and throttle response
-            base_rpm = random.uniform(600, 1000)  # Low RPM, struggling
-            base_throttle = random.uniform(40, 60)  # High throttle but low RPM
-            base_temp = random.uniform(65, 80)  # Lower temp
-            self.last_rpm = base_rpm
-            self.last_throttle = base_throttle
-            self.last_temp = base_temp
+            final_rpm = random.uniform(600, 1000)  # Low RPM, struggling
+            final_throttle = random.uniform(40, 60)  # High throttle but low RPM
+            final_temp = random.uniform(65, 80)  # Lower temp
         elif self.fault_type == "cooling_system":
             # Cooling system failure - gradual overheating
-            base_temp = random.uniform(115, 125)  # Moderate overheating
-            base_rpm = random.uniform(2000, 2500)  # Slightly elevated RPM
-            self.last_temp = base_temp
-            self.last_rpm = base_rpm
+            final_temp = random.uniform(115, 125)  # Moderate overheating
+            # Keep RPM from interconnected system for realism
         
-        # Create reading
+        # Create reading with interconnected values
         reading = {
             "vehicle_id": self.vehicle_id,
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "sensors": {
-                "engine_rpm": round(base_rpm, 2),
-                "engine_temp_c": round(base_temp, 2),
-                "vibration_level_g": round(base_vibration, 3),
-                "throttle_pos_pct": int(base_throttle),
-                "battery_voltage_v": round(base_battery, 2)
+                "engine_rpm": round(final_rpm, 2),
+                "engine_temp_c": round(final_temp, 2),
+                "vibration_level_g": round(final_vibration, 3),
+                "throttle_pos_pct": int(final_throttle),
+                "battery_voltage_v": round(final_battery, 2)
             }
         }
         

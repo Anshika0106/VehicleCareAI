@@ -64,12 +64,18 @@ if "latest_appointment" not in st.session_state:
 if "show_notification" not in st.session_state:
     st.session_state.show_notification = False
 
-# Train model on startup
+# Check if model is already trained (loaded from disk or in session)
 if not st.session_state.model_trained:
-    with st.spinner("Training anomaly detection model on normal vehicle data..."):
-        st.session_state.detector.train_initial_model(n_samples=1000)
+    # Check if detector already loaded models from disk
+    if st.session_state.detector.is_trained:
         st.session_state.model_trained = True
-        st.success("Model trained successfully!")
+        st.success("✓ Loaded pre-trained model from disk.")
+    else:
+        # Only train if no saved model exists
+        with st.spinner("Training anomaly detection model on normal vehicle data... (This only happens once)"):
+            st.session_state.detector.train_initial_model(n_samples=1000)
+            st.session_state.model_trained = True
+            st.success("Model trained and saved successfully!")
 
 
 # Helper functions for page rendering

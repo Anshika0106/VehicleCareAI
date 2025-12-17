@@ -5,13 +5,21 @@ Uses LSTM for time series prediction and XGBoost for classification.
 
 import numpy as np
 import pandas as pd
+import pickle
+import os
 from typing import List, Dict, Optional
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from xgboost import XGBClassifier
 from sklearn.preprocessing import MinMaxScaler
 from vehicle_sim import VehicleSimulator
+
+# Path to save trained models
+MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
+LSTM_MODEL_PATH = os.path.join(MODEL_DIR, "trained_lstm_model.keras")
+XGB_MODEL_PATH = os.path.join(MODEL_DIR, "trained_xgb_model.pkl")
+SCALER_PATH = os.path.join(MODEL_DIR, "trained_scaler.pkl")
 
 
 class AnomalyDetector:
@@ -48,6 +56,53 @@ class AnomalyDetector:
             "throttle_pos_pct",
             "battery_voltage_v"
         ]
+        
+        # Try to load existing models on initialization
+        self._load_models()
+    
+    def _save_models(self):
+        """Save trained models to disk for persistence across sessions."""
+        if self.is_trained:
+            try:
+                # Save LSTM model
+                self.lstm_model.save(LSTM_MODEL_PATH)
+                
+                # Save XGBoost model and scaler
+                with open(XGB_MODEL_PATH, 'wb') as f:
+                    pickle.dump(self.xgb_model, f)
+                
+                with open(SCALER_PATH, 'wb') as f:
+                    pickle.dump(self.scaler, f)
+                
+                print("Models saved to disk.")
+            except Exception as e:
+                print(f"Error saving models: {e}")
+    
+    def _load_models(self):
+        """Load trained models from disk if they exist."""
+        try:
+            if (os.path.exists(LSTM_MODEL_PATH) and 
+                os.path.exists(XGB_MODEL_PATH) and 
+                os.path.exists(SCALER_PATH)):
+                
+                # Load LSTM model
+                self.lstm_model = load_model(LSTM_MODEL_PATH)
+                
+                # Load XGBoost model
+                with open(XGB_MODEL_PATH, 'rb') as f:
+                    self.xgb_model = pickle.load(f)
+                
+                # Load scaler
+                with open(SCALER_PATH, 'rb') as f:
+                    self.scaler = pickle.load(f)
+                
+                self.is_trained = True
+                print("Loaded trained models from disk.")
+                return True
+        except Exception as e:
+            print(f"Could not load models from disk: {e}")
+        
+        return False
     
     def sync_history(self, readings: List[Dict]):
         """
@@ -340,10 +395,52 @@ class AnomalyDetector:
         
         self.is_trained = True
         print(f"Models trained successfully on {n_samples} normal readings.")
+        
+        # Save models to disk for persistence
+        self._save_models()
+    
+    def _check_critical_thresholds(self, reading: dict) -> bool:
+        """
+        Check if any sensor readings exceed critical thresholds.
+        This is a rule-based fallback to ensure critical anomalies are always detected.
+        
+        Args:
+            reading: Dictionary containing sensor data
+            
+        Returns:
+            True if critical anomaly detected, False otherwise
+        """
+        sensors = reading["sensors"]
+        
+        # Critical conditions that should ALWAYS trigger anomaly
+        if sensors["vibration_level_g"] > 1.0:
+            return True
+        if sensors["engine_temp_c"] > 120:
+            return True
+        if sensors["battery_voltage_v"] < 11.5:
+            return True
+        
+        # Major conditions that should trigger anomaly
+        if sensors["engine_temp_c"] > 110:
+            return True
+        if sensors["vibration_level_g"] > 0.6:
+            return True
+        if sensors["battery_voltage_v"] < 12.0:
+            return True
+        
+        # Unusual RPM patterns
+        if sensors["engine_rpm"] > 3500 and sensors["throttle_pos_pct"] < 20:
+            return True
+        if sensors["engine_rpm"] < 1200 and sensors["throttle_pos_pct"] > 40:
+            return True
+        if sensors["engine_rpm"] < 1200 and sensors["vibration_level_g"] > 0.6:
+            return True
+        
+        return False
     
     def detect_anomaly(self, reading: dict) -> int:
         """
-        Detect if a reading is anomalous using LSTM + XGBoost.
+        Detect if a reading is anomalous using LSTM + XGBoost with rule-based fallback.
         
         Args:
             reading: Dictionary containing sensor data
@@ -353,6 +450,15 @@ class AnomalyDetector:
         """
         if not self.is_trained:
             raise ValueError("Model must be trained before detection. Call train_initial_model() first.")
+        
+        # FIRST: Check rule-based thresholds (always catches critical anomalies)
+        if self._check_critical_thresholds(reading):
+            # Update history
+            if not self.reading_history or self.reading_history[-1] != reading:
+                self.reading_history.append(reading)
+                if len(self.reading_history) > 50:
+                    self.reading_history = self.reading_history[-50:]
+            return -1  # Anomaly detected by rules
         
         # Extract features
         features_raw = self._extract_features(reading)
