@@ -34,6 +34,10 @@ if "anomalies_detected" not in st.session_state:
     st.session_state.anomalies_detected = []
 if "auto_update" not in st.session_state:
     st.session_state.auto_update = True  # Start with auto-update enabled
+if "update_interval" not in st.session_state:
+    st.session_state.update_interval = 5  # Default to 5 seconds
+if "last_update_time" not in st.session_state:
+    st.session_state.last_update_time = time.time()
 
 # Train model on startup
 if not st.session_state.model_trained:
@@ -73,8 +77,34 @@ with st.sidebar:
     st.markdown("---")
     
     st.subheader("Dashboard Controls")
-    auto_update = st.checkbox("Auto Update (1s)", value=st.session_state.auto_update)
+    auto_update = st.checkbox("Auto Update", value=st.session_state.auto_update)
     st.session_state.auto_update = auto_update
+    
+    # Update interval dropdown
+    interval_options = {
+        "5 seconds": 5,
+        "10 seconds": 10,
+        "30 seconds": 30,
+        "1 minute": 60,
+        "2 minutes": 120,
+        "5 minutes": 300,
+        "10 minutes": 600
+    }
+    
+    # Find the index of current interval
+    interval_list = list(interval_options.items())
+    current_index = 0
+    for idx, (label, seconds) in enumerate(interval_list):
+        if seconds == st.session_state.update_interval:
+            current_index = idx
+            break
+    
+    selected_interval = st.selectbox(
+        "Update Interval",
+        options=list(interval_options.keys()),
+        index=current_index
+    )
+    st.session_state.update_interval = interval_options[selected_interval]
     
     if st.button("Generate New Reading"):
         reading = st.session_state.simulator.generate_reading()
@@ -107,29 +137,39 @@ with st.sidebar:
 st.title("VehicleCare AI - Predictive Maintenance Dashboard")
 st.markdown("Real-time vehicle telemetry monitoring and anomaly detection")
 
-# Auto-update loop
+# Auto-update logic
 if st.session_state.auto_update:
-    reading = st.session_state.simulator.generate_reading()
-    anomaly = st.session_state.detector.detect_anomaly(reading)
-    score = st.session_state.detector.get_anomaly_score(reading)
+    current_time = time.time()
+    time_since_last_update = current_time - st.session_state.last_update_time
     
-    reading["anomaly"] = anomaly
-    reading["anomaly_score"] = score
-    st.session_state.readings_history.append(reading)
+    # Check if it's time to update
+    if time_since_last_update >= st.session_state.update_interval:
+        reading = st.session_state.simulator.generate_reading()
+        anomaly = st.session_state.detector.detect_anomaly(reading)
+        score = st.session_state.detector.get_anomaly_score(reading)
+        
+        reading["anomaly"] = anomaly
+        reading["anomaly_score"] = score
+        st.session_state.readings_history.append(reading)
+        
+        if anomaly == -1:
+            recommendation = analyze_anomaly(reading)
+            st.session_state.anomalies_detected.append({
+                "timestamp": reading["timestamp"],
+                "reading": reading,
+                "recommendation": recommendation
+            })
+        
+        # Keep only last 100 readings for performance
+        if len(st.session_state.readings_history) > 100:
+            st.session_state.readings_history = st.session_state.readings_history[-100:]
+        
+        st.session_state.last_update_time = current_time
     
-    if anomaly == -1:
-        recommendation = analyze_anomaly(reading)
-        st.session_state.anomalies_detected.append({
-            "timestamp": reading["timestamp"],
-            "reading": reading,
-            "recommendation": recommendation
-        })
-    
-    # Keep only last 100 readings for performance
-    if len(st.session_state.readings_history) > 100:
-        st.session_state.readings_history = st.session_state.readings_history[-100:]
-    
-    time.sleep(1)
+    # Schedule next rerun
+    # Use a small delay to prevent excessive reruns, but respect the interval
+    time_until_next = max(0.5, min(st.session_state.update_interval - time_since_last_update, 1.0))
+    time.sleep(time_until_next)
     st.rerun()
 
 # Display latest anomaly alert
