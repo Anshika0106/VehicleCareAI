@@ -164,15 +164,17 @@ if st.session_state.auto_update:
     
     time_since_last_update = current_time - st.session_state.last_update_time
     
-    # Check if it's time to update and generate new reading
+    # Always generate a new reading when auto-update is enabled
+    # This ensures fresh data is available on each page load
+    reading = st.session_state.simulator.generate_reading()
+    anomaly = st.session_state.detector.detect_anomaly(reading)
+    score = st.session_state.detector.get_anomaly_score(reading)
+    
+    reading["anomaly"] = anomaly
+    reading["anomaly_score"] = score
+    
+    # Only add to history if enough time has passed (respects update interval)
     if time_since_last_update >= st.session_state.update_interval:
-        # Generate new reading
-        reading = st.session_state.simulator.generate_reading()
-        anomaly = st.session_state.detector.detect_anomaly(reading)
-        score = st.session_state.detector.get_anomaly_score(reading)
-        
-        reading["anomaly"] = anomaly
-        reading["anomaly_score"] = score
         st.session_state.readings_history.append(reading)
         
         if anomaly == -1:
@@ -189,16 +191,31 @@ if st.session_state.auto_update:
         
         st.session_state.last_update_time = current_time
     
-    # Use JavaScript-based auto-refresh (non-blocking)
-    # Calculate time until next update (in milliseconds)
-    time_until_next = max(100, int((st.session_state.update_interval - time_since_last_update) * 1000))
+    # Store the latest reading for display (even if not added to history yet)
+    st.session_state.latest_reading = reading
     
-    # Inject JavaScript to auto-refresh after the interval
+    # Calculate time until next update
+    time_until_next = max(1, st.session_state.update_interval - time_since_last_update)
+    
+    # Show refresh status
+    st.info(f"⏱️ Auto-updating every {st.session_state.update_interval}s | Next update in {int(time_until_next)}s")
+    
+    # Use meta refresh tag for reliable auto-refresh in Streamlit
+    # This is more reliable than JavaScript in Streamlit's iframe environment
+    refresh_delay_seconds = int(time_until_next)
+    
+    # Inject meta refresh tag
+    meta_refresh = f"""
+    <meta http-equiv="refresh" content="{refresh_delay_seconds}">
+    """
+    st.markdown(meta_refresh, unsafe_allow_html=True)
+    
+    # Also add JavaScript as backup
     refresh_script = f"""
     <script>
         setTimeout(function(){{
             window.location.reload(true);
-        }}, {time_until_next});
+        }}, {refresh_delay_seconds * 1000});
     </script>
     """
     st.markdown(refresh_script, unsafe_allow_html=True)
@@ -212,8 +229,15 @@ if st.session_state.anomalies_detected:
     st.markdown("---")
 
 # Current reading display
-if st.session_state.readings_history:
+# Use latest reading if available (from auto-update), otherwise use last from history
+if "latest_reading" in st.session_state:
+    latest = st.session_state.latest_reading
+elif st.session_state.readings_history:
     latest = st.session_state.readings_history[-1]
+else:
+    latest = None
+
+if latest:
     
     # Metrics row
     col1, col2, col3, col4, col5 = st.columns(5)
