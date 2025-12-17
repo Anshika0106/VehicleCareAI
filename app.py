@@ -10,6 +10,55 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Load environment variables from .env file or Streamlit secrets
+import os
+
+def load_env_file():
+    """Load environment variables from .env file manually."""
+    possible_paths = [
+        '.env',
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'),
+    ]
+    
+    for env_path in possible_paths:
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip().strip('"').strip("'")
+                            if key and value:
+                                os.environ[key] = value
+                break
+            except Exception:
+                continue
+
+def load_streamlit_secrets():
+    """Load secrets from Streamlit Cloud secrets management."""
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets'):
+            # Copy Streamlit secrets to environment variables
+            for key in ['GOOGLE_API_KEY', 'AZURE_SPEECH_KEY', 'AZURE_SPEECH_REGION', 
+                       'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER']:
+                if key in st.secrets:
+                    os.environ[key] = str(st.secrets[key])
+            return True
+    except Exception:
+        pass
+    return False
+
+# Priority: Streamlit secrets > python-dotenv > manual .env loading
+if not load_streamlit_secrets():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        load_env_file()
+
 from vehicle_sim import VehicleSimulator
 from anomaly_model import AnomalyDetector
 from maintenance_agent import (
@@ -21,12 +70,475 @@ from maintenance_agent import (
     get_risk_level
 )
 
+# Voice booking imports
+import asyncio
+import os
+from voice_booking_agent import (
+    BookingRequest,
+    BookingResult,
+    BookingStatus,
+    AutoBookingProgress,
+    book_appointment_automatically,
+    auto_book_with_service_centers,
+    run_auto_booking_sync,
+    SERVICE_CENTER_DIRECTORY,
+    get_service_center_phone
+)
+
 # Page configuration
 st.set_page_config(
     page_title="VehicleCare AI",
+    page_icon="◉",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ============================================
+# GLOBAL PREMIUM UI STYLING
+# ============================================
+st.markdown("""
+<style>
+    /* Import Premium Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    
+    /* Root Variables - Premium Dark Theme */
+    :root {
+        --bg-primary: #0a0a0b;
+        --bg-secondary: #111113;
+        --bg-tertiary: #18181b;
+        --bg-card: #1c1c1f;
+        --bg-card-hover: #222225;
+        --border-subtle: #27272a;
+        --border-medium: #3f3f46;
+        --text-primary: #fafafa;
+        --text-secondary: #a1a1aa;
+        --text-muted: #71717a;
+        --accent-primary: #10b981;
+        --accent-secondary: #06b6d4;
+        --accent-warning: #f59e0b;
+        --accent-danger: #ef4444;
+        --accent-gradient: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
+        --radius-sm: 6px;
+        --radius-md: 10px;
+        --radius-lg: 16px;
+        --radius-xl: 24px;
+    }
+    
+    /* Global Styles */
+    .stApp {
+        background: var(--bg-primary) !important;
+        font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    }
+    
+    /* Hide Streamlit Branding */
+    #MainMenu, footer, header {
+        visibility: hidden;
+    }
+    
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: var(--bg-secondary);
+    }
+    ::-webkit-scrollbar-thumb {
+        background: var(--border-medium);
+        border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--text-muted);
+    }
+    
+    /* Sidebar Styling */
+    [data-testid="stSidebar"] {
+        background: var(--bg-secondary) !important;
+        border-right: 1px solid var(--border-subtle) !important;
+    }
+    
+    [data-testid="stSidebar"] .stMarkdown {
+        color: var(--text-primary) !important;
+    }
+    
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3 {
+        color: var(--text-primary) !important;
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Main Content Area */
+    .main .block-container {
+        padding: 2rem 3rem !important;
+        max-width: 1400px !important;
+    }
+    
+    /* Typography */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Outfit', sans-serif !important;
+        color: var(--text-primary) !important;
+        font-weight: 600 !important;
+        letter-spacing: -0.02em !important;
+    }
+    
+    h1 { font-size: 2.5rem !important; font-weight: 700 !important; }
+    h2 { font-size: 1.75rem !important; }
+    h3 { font-size: 1.25rem !important; }
+    
+    p, span, div {
+        font-family: 'Outfit', sans-serif !important;
+    }
+    
+    /* Metric Cards */
+    [data-testid="stMetric"] {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: var(--radius-lg) !important;
+        padding: 1.25rem !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    [data-testid="stMetric"]:hover {
+        background: var(--bg-card-hover) !important;
+        border-color: var(--border-medium) !important;
+        transform: translateY(-2px);
+    }
+    
+    [data-testid="stMetric"] label {
+        color: var(--text-secondary) !important;
+        font-size: 0.875rem !important;
+        font-weight: 500 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+    }
+    
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: var(--text-primary) !important;
+        font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 1.75rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Buttons */
+    .stButton > button {
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+        padding: 0.75rem 1.5rem !important;
+        border-radius: var(--radius-md) !important;
+        transition: all 0.2s ease !important;
+        letter-spacing: 0.01em !important;
+    }
+    
+    .stButton > button[kind="primary"] {
+        background: var(--accent-gradient) !important;
+        border: none !important;
+        color: white !important;
+        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3) !important;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important;
+    }
+    
+    .stButton > button[kind="secondary"] {
+        background: var(--bg-tertiary) !important;
+        border: 1px solid var(--border-medium) !important;
+        color: var(--text-primary) !important;
+    }
+    
+    .stButton > button[kind="secondary"]:hover {
+        background: var(--bg-card-hover) !important;
+        border-color: var(--text-muted) !important;
+    }
+    
+    /* Select boxes and Inputs */
+    .stSelectbox > div > div,
+    .stTextInput > div > div > input,
+    .stNumberInput > div > div > input {
+        background: var(--bg-tertiary) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: var(--radius-md) !important;
+        color: var(--text-primary) !important;
+        font-family: 'Outfit', sans-serif !important;
+    }
+    
+    .stSelectbox > div > div:hover,
+    .stTextInput > div > div > input:hover {
+        border-color: var(--border-medium) !important;
+    }
+    
+    .stSelectbox > div > div:focus-within,
+    .stTextInput > div > div > input:focus {
+        border-color: var(--accent-primary) !important;
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
+    }
+    
+    /* Labels */
+    .stSelectbox label,
+    .stTextInput label,
+    .stNumberInput label,
+    .stCheckbox label {
+        color: var(--text-secondary) !important;
+        font-size: 0.875rem !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Info/Warning/Error boxes */
+    .stAlert {
+        border-radius: var(--radius-md) !important;
+        border: none !important;
+    }
+    
+    [data-testid="stAlert"][data-baseweb="notification"] {
+        background: var(--bg-card) !important;
+        border-left: 4px solid var(--accent-primary) !important;
+    }
+    
+    /* Expanders */
+    .streamlit-expanderHeader {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: var(--radius-md) !important;
+        color: var(--text-primary) !important;
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 500 !important;
+    }
+    
+    .streamlit-expanderContent {
+        background: var(--bg-tertiary) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-top: none !important;
+        border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+    }
+    
+    /* Dataframes */
+    .stDataFrame {
+        border-radius: var(--radius-lg) !important;
+        overflow: hidden !important;
+    }
+    
+    [data-testid="stDataFrame"] > div {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border-subtle) !important;
+        border-radius: var(--radius-lg) !important;
+    }
+    
+    /* Plotly Charts - Dark Theme */
+    .js-plotly-plot .plotly .modebar {
+        background: var(--bg-card) !important;
+    }
+    
+    /* Checkbox */
+    .stCheckbox > label > div[data-testid="stCheckbox"] {
+        background: var(--bg-tertiary) !important;
+        border-color: var(--border-medium) !important;
+    }
+    
+    /* Caption text */
+    .stCaption {
+        color: var(--text-muted) !important;
+        font-size: 0.8rem !important;
+    }
+    
+    /* Dividers */
+    hr {
+        border-color: var(--border-subtle) !important;
+    }
+    
+    /* Premium Brand Header */
+    .premium-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 24px 0;
+        margin-bottom: 32px;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+    
+    .premium-logo {
+        width: 48px;
+        height: 48px;
+        background: var(--accent-gradient);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+    }
+    
+    .premium-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: -0.02em;
+    }
+    
+    .premium-subtitle {
+        font-family: 'Outfit', sans-serif;
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+    
+    .premium-badge {
+        background: var(--accent-gradient);
+        color: white;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 20px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    /* Status Indicator */
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+        animation: pulse 2s ease-in-out infinite;
+    }
+    
+    .status-dot.active {
+        background: var(--accent-primary);
+        box-shadow: 0 0 8px var(--accent-primary);
+    }
+    
+    .status-dot.warning {
+        background: var(--accent-warning);
+        box-shadow: 0 0 8px var(--accent-warning);
+    }
+    
+    .status-dot.danger {
+        background: var(--accent-danger);
+        box-shadow: 0 0 8px var(--accent-danger);
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    /* Premium Cards */
+    .premium-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        margin: 16px 0;
+        transition: all 0.2s ease;
+    }
+    
+    .premium-card:hover {
+        background: var(--bg-card-hover);
+        border-color: var(--border-medium);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+    }
+    
+    .premium-card-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+    
+    .premium-card-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        background: var(--bg-tertiary);
+    }
+    
+    .premium-card-title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    
+    .premium-card-subtitle {
+        font-family: 'Outfit', sans-serif;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .premium-card-content {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        line-height: 1.6;
+    }
+    
+    /* Severity Badges */
+    .severity-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        font-family: 'Outfit', sans-serif;
+    }
+    
+    .severity-critical {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    
+    .severity-high {
+        background: rgba(245, 158, 11, 0.15);
+        color: #fbbf24;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    
+    .severity-medium {
+        background: rgba(6, 182, 212, 0.15);
+        color: #22d3ee;
+        border: 1px solid rgba(6, 182, 212, 0.3);
+    }
+    
+    .severity-low {
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    
+    /* Monospace Values */
+    .mono-value {
+        font-family: 'IBM Plex Mono', monospace;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+    
+    /* Animated Gradient Text */
+    .gradient-text {
+        background: var(--accent-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize session state
 if "simulator" not in st.session_state:
@@ -63,6 +575,28 @@ if "latest_appointment" not in st.session_state:
     st.session_state.latest_appointment = None
 if "show_notification" not in st.session_state:
     st.session_state.show_notification = False
+if "auto_booking_status" not in st.session_state:
+    st.session_state.auto_booking_status = None
+if "auto_booking_result" not in st.session_state:
+    st.session_state.auto_booking_result = None
+if "auto_booking_logs" not in st.session_state:
+    st.session_state.auto_booking_logs = []
+if "booking_in_progress" not in st.session_state:
+    st.session_state.booking_in_progress = False
+if "auto_booking_triggered" not in st.session_state:
+    st.session_state.auto_booking_triggered = False
+if "auto_booking_complete" not in st.session_state:
+    st.session_state.auto_booking_complete = False
+if "calling_centers_progress" not in st.session_state:
+    st.session_state.calling_centers_progress = []
+
+# Default customer info (would come from user profile in production)
+if "customer_info" not in st.session_state:
+    st.session_state.customer_info = {
+        "name": "John Doe",
+        "phone": "+1 (555) 123-4567",
+        "email": "john.doe@example.com"
+    }
 
 # Check if model is already trained (loaded from disk or in session)
 if not st.session_state.model_trained:
@@ -80,7 +614,7 @@ if not st.session_state.model_trained:
 
 # Helper functions for page rendering
 def render_issue_details_page():
-    """Render the Issue Detected page with modern, polished design."""
+    """Render the Issue Detected page with premium dark design."""
     
     # Get issue data first
     if st.session_state.current_issue:
@@ -89,242 +623,272 @@ def render_issue_details_page():
         issue_title, issue_description, recommended_action = get_issue_details(reading)
         severity = get_severity_level(reading)
         
-        # Determine severity styling
-        severity_colors = {
-            "Critical": {"bg": "#fee2e2", "border": "#ef4444", "text": "#dc2626", "icon": "🔴"},
-            "High": {"bg": "#fef3c7", "border": "#f59e0b", "text": "#d97706", "icon": "🟠"},
-            "Medium": {"bg": "#fef9c3", "border": "#eab308", "text": "#ca8a04", "icon": "🟡"},
-            "Low": {"bg": "#dcfce7", "border": "#22c55e", "text": "#16a34a", "icon": "🟢"}
+        # Determine severity styling for dark theme
+        severity_styles = {
+            "Critical": {"class": "severity-critical", "icon": "●", "glow": "#ef4444"},
+            "High": {"class": "severity-high", "icon": "●", "glow": "#f59e0b"},
+            "Medium": {"class": "severity-medium", "icon": "●", "glow": "#06b6d4"},
+            "Low": {"class": "severity-low", "icon": "●", "glow": "#10b981"}
         }
-        sev_style = severity_colors.get(severity, severity_colors["Medium"])
+        sev_style = severity_styles.get(severity, severity_styles["Medium"])
     else:
         issue_title = "No Issue"
         issue_description = "No issue data available."
         recommended_action = "Return to dashboard."
         severity = "Unknown"
-        sev_style = {"bg": "#f3f4f6", "border": "#9ca3af", "text": "#6b7280", "icon": "⚪"}
+        sev_style = {"class": "severity-medium", "icon": "○", "glow": "#71717a"}
     
+    # Premium Dark Theme Styles
     st.markdown(
         f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
-        
-        .issue-page-container {{
+        .issue-container {{
             max-width: 800px;
             margin: 0 auto;
-            padding: 0 20px;
+            padding: 20px;
         }}
         
-        .issue-page-header {{
-            text-align: center;
-            margin-bottom: 40px;
-            padding-top: 20px;
+        .issue-header {{
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #27272a;
         }}
         
-        .issue-page-logo {{
-            font-family: 'DM Sans', sans-serif;
+        .issue-logo-icon {{
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             font-size: 28px;
-            font-weight: 700;
-            background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            letter-spacing: -0.5px;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
         }}
         
-        .issue-page-subtitle {{
-            font-family: 'DM Sans', sans-serif;
-            color: #64748b;
-            font-size: 14px;
+        .issue-header-text {{
+            flex: 1;
+        }}
+        
+        .issue-header-title {{
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fafafa;
+            letter-spacing: -0.02em;
+        }}
+        
+        .issue-header-subtitle {{
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.875rem;
+            color: #71717a;
             margin-top: 4px;
         }}
         
+        .alert-banner {{
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }}
+        
+        .alert-banner-icon {{
+            font-size: 24px;
+            animation: pulse-alert 2s ease-in-out infinite;
+        }}
+        
+        @keyframes pulse-alert {{
+            0%, 100% {{ opacity: 1; transform: scale(1); }}
+            50% {{ opacity: 0.7; transform: scale(1.1); }}
+        }}
+        
+        .alert-banner-text {{
+            font-family: 'Outfit', sans-serif;
+            color: #fca5a5;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }}
+        
         .issue-card {{
-            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+            background: #1c1c1f;
+            border: 1px solid #27272a;
             border-radius: 16px;
-            padding: 28px 32px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-            border: 1px solid #e2e8f0;
+            padding: 24px;
+            margin-bottom: 16px;
             transition: all 0.2s ease;
         }}
         
         .issue-card:hover {{
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+            background: #222225;
+            border-color: #3f3f46;
             transform: translateY(-2px);
         }}
         
         .issue-card-header {{
             display: flex;
             align-items: center;
-            gap: 12px;
-            margin-bottom: 20px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid #e2e8f0;
+            gap: 14px;
+            margin-bottom: 16px;
         }}
         
         .issue-card-icon {{
             width: 44px;
             height: 44px;
-            border-radius: 12px;
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 22px;
+            font-size: 20px;
         }}
         
-        .issue-card-icon.alert {{
-            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+        .issue-card-icon.danger {{
+            background: rgba(239, 68, 68, 0.15);
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.1);
         }}
         
         .issue-card-icon.info {{
-            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            background: rgba(6, 182, 212, 0.15);
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.1);
         }}
         
         .issue-card-icon.action {{
-            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            background: rgba(16, 185, 129, 0.15);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.1);
         }}
         
         .issue-card-label {{
-            font-family: 'DM Sans', sans-serif;
-            font-size: 12px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.7rem;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.8px;
-            color: #64748b;
+            letter-spacing: 0.08em;
+            color: #71717a;
         }}
         
         .issue-card-title {{
-            font-family: 'DM Sans', sans-serif;
-            font-size: 20px;
-            font-weight: 700;
-            color: #1e293b;
-            margin-top: 4px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fafafa;
+            margin-top: 2px;
         }}
         
-        .issue-card-description {{
-            font-family: 'DM Sans', sans-serif;
-            color: #475569;
-            font-size: 15px;
+        .issue-card-content {{
+            font-family: 'Outfit', sans-serif;
+            color: #a1a1aa;
+            font-size: 0.95rem;
             line-height: 1.7;
-        }}
-        
-        .severity-badge {{
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: {sev_style['bg']};
-            border: 2px solid {sev_style['border']};
-            color: {sev_style['text']};
-            padding: 12px 24px;
-            border-radius: 12px;
-            font-family: 'DM Sans', sans-serif;
-            font-weight: 700;
-            font-size: 18px;
         }}
         
         .severity-row {{
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 8px 0;
+            padding: 12px 0;
         }}
         
-        .severity-label-text {{
-            font-family: 'DM Sans', sans-serif;
-            color: #64748b;
-            font-size: 15px;
-            font-weight: 500;
+        .severity-label {{
+            font-family: 'Outfit', sans-serif;
+            color: #71717a;
+            font-size: 0.9rem;
         }}
         
-        .action-highlight {{
-            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-            border-left: 4px solid #0284c7;
+        .action-box {{
+            background: rgba(16, 185, 129, 0.08);
+            border-left: 3px solid #10b981;
             padding: 16px 20px;
-            border-radius: 0 12px 12px 0;
-            margin-top: 12px;
+            border-radius: 0 10px 10px 0;
+            margin-top: 8px;
         }}
         
-        .action-highlight p {{
-            font-family: 'DM Sans', sans-serif;
-            color: #0c4a6e;
-            font-size: 15px;
-            line-height: 1.7;
+        .action-box p {{
+            font-family: 'Outfit', sans-serif;
+            color: #34d399;
+            font-size: 0.95rem;
+            line-height: 1.6;
             margin: 0;
         }}
         
-        /* Schedule button styling */
-        div[data-testid="stButton"] > button[kind="primary"] {{
-            background: linear-gradient(135deg, #1e293b 0%, #334155 100%) !important;
-            color: #ffffff !important;
-            border: none !important;
-            font-family: 'DM Sans', sans-serif !important;
-            font-weight: 600 !important;
-            font-size: 16px !important;
-            padding: 16px 32px !important;
-            border-radius: 12px !important;
-            box-shadow: 0 4px 14px rgba(30, 41, 59, 0.25) !important;
-            transition: all 0.3s ease !important;
-            letter-spacing: 0.3px !important;
+        .booking-status {{
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(6, 182, 212, 0.1) 100%);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 24px;
         }}
         
-        div[data-testid="stButton"] > button[kind="primary"]:hover {{
-            background: linear-gradient(135deg, #334155 0%, #475569 100%) !important;
-            transform: translateY(-2px) !important;
-            box-shadow: 0 8px 20px rgba(30, 41, 59, 0.3) !important;
+        .booking-status-icon {{
+            font-size: 32px;
+            margin-bottom: 12px;
         }}
         
-        /* Back button styling */
-        div[data-testid="stButton"] > button[kind="secondary"] {{
-            background: transparent !important;
-            color: #64748b !important;
-            border: 2px solid #e2e8f0 !important;
-            font-family: 'DM Sans', sans-serif !important;
-            font-weight: 500 !important;
-            padding: 10px 20px !important;
-            border-radius: 10px !important;
-            transition: all 0.2s ease !important;
+        .booking-status-text {{
+            font-family: 'Outfit', sans-serif;
+            color: #34d399;
+            font-size: 1rem;
+            font-weight: 500;
         }}
         
-        div[data-testid="stButton"] > button[kind="secondary"]:hover {{
-            background: #f1f5f9 !important;
-            border-color: #cbd5e1 !important;
-            color: #334155 !important;
+        .booking-status-subtext {{
+            font-family: 'Outfit', sans-serif;
+            color: #71717a;
+            font-size: 0.85rem;
+            margin-top: 8px;
         }}
         </style>
         """,
         unsafe_allow_html=True
     )
     
-    # Container for centering
-    st.markdown('<div class="issue-page-container">', unsafe_allow_html=True)
+    # Back button with premium styling
+    col1, col2, col3 = st.columns([1, 6, 1])
+    with col1:
+        if st.button("← Back", type="secondary"):
+            st.session_state.current_page = "dashboard"
+            st.session_state.show_notification = False
+            st.rerun()
     
-    # Back button
-    if st.button("← Back", type="secondary"):
-        st.session_state.current_page = "dashboard"
-        st.session_state.show_notification = False
-        st.rerun()
+    st.markdown('<div class="issue-container">', unsafe_allow_html=True)
     
     # Header
     st.markdown('''
-        <div class="issue-page-header">
-            <div class="issue-page-logo">VehicleCare AI</div>
-            <div class="issue-page-subtitle">Predictive Maintenance Report</div>
+        <div class="issue-header">
+            <div class="issue-logo-icon" style="font-size: 18px; font-weight: 700; color: white;">VC</div>
+            <div class="issue-header-text">
+                <div class="issue-header-title">VehicleCare AI</div>
+                <div class="issue-header-subtitle">Predictive Maintenance Alert</div>
+            </div>
         </div>
     ''', unsafe_allow_html=True)
     
     if st.session_state.current_issue:
+        # Alert Banner
+        st.markdown(f'''
+            <div class="alert-banner">
+                <span class="alert-banner-icon" style="color: #fca5a5; font-weight: bold;">!</span>
+                <span class="alert-banner-text">Anomaly detected - Automated service booking initiated</span>
+            </div>
+        ''', unsafe_allow_html=True)
+        
         # Issue Detected Card
         st.markdown(f'''
             <div class="issue-card">
                 <div class="issue-card-header">
-                    <div class="issue-card-icon alert">⚠️</div>
+                    <div class="issue-card-icon danger" style="font-weight: bold; color: #f87171;">!</div>
                     <div>
-                        <div class="issue-card-label">Issue Detected</div>
+                        <div class="issue-card-label">Issue Identified</div>
                         <div class="issue-card-title">{issue_title}</div>
                     </div>
                 </div>
-                <div class="issue-card-description">{issue_description}</div>
+                <div class="issue-card-content">{issue_description}</div>
             </div>
         ''', unsafe_allow_html=True)
         
@@ -332,69 +896,631 @@ def render_issue_details_page():
         st.markdown(f'''
             <div class="issue-card">
                 <div class="issue-card-header">
-                    <div class="issue-card-icon info">📊</div>
+                    <div class="issue-card-icon info" style="font-weight: bold; color: #22d3ee;">i</div>
                     <div>
                         <div class="issue-card-label">Diagnostic Analysis</div>
-                        <div class="issue-card-title">Issue Details</div>
+                        <div class="issue-card-title">Severity Assessment</div>
                     </div>
                 </div>
                 <div class="severity-row">
-                    <span class="severity-label-text">Severity Level</span>
-                    <span class="severity-badge">{sev_style['icon']} {severity}</span>
+                    <span class="severity-label">Risk Level</span>
+                    <span class="{sev_style['class']}">{sev_style['icon']} {severity}</span>
                 </div>
             </div>
         ''', unsafe_allow_html=True)
         
-        # Recommended Action Card
+        # Action Card with Auto-booking status
         st.markdown(f'''
             <div class="issue-card">
                 <div class="issue-card-header">
-                    <div class="issue-card-icon action">🔧</div>
+                    <div class="issue-card-icon action" style="font-weight: bold; color: #34d399;">AI</div>
                     <div>
-                        <div class="issue-card-label">Next Steps</div>
-                        <div class="issue-card-title">Recommended Action</div>
+                        <div class="issue-card-label">Automated Response</div>
+                        <div class="issue-card-title">AI Service Booking</div>
                     </div>
                 </div>
-                <div class="action-highlight">
-                    <p>{recommended_action}</p>
+                <div class="action-box">
+                    <p>VehicleCare AI is automatically contacting service centers to schedule your appointment. No action required.</p>
                 </div>
+            </div>
+            
+            <div class="booking-status">
+                <div class="booking-status-icon" style="font-size: 24px; color: #34d399;">●</div>
+                <div class="booking-status-text">Initiating automated booking...</div>
+                <div class="booking-status-subtext">Calling service centers to find the best available slot</div>
             </div>
         ''', unsafe_allow_html=True)
         
-        # Schedule Service Button
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("📅 Schedule Service Appointment", type="primary", use_container_width=True):
-            st.session_state.current_page = "schedule_service"
+        # Auto-trigger booking
+        if not st.session_state.auto_booking_triggered:
+            st.session_state.auto_booking_triggered = True
+            st.session_state.current_page = "auto_booking_progress"
+            time.sleep(1)  # Brief pause for UX
             st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
 
 
+def render_auto_booking_progress_page():
+    """Render the Auto-Booking Progress page with premium dark design."""
+    
+    st.markdown(
+        """
+        <style>
+        .booking-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .booking-header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #27272a;
+        }
+        
+        .booking-logo-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .booking-logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+        }
+        
+        .booking-logo-text {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fafafa;
+        }
+        
+        .booking-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #fafafa;
+            margin-bottom: 8px;
+        }
+        
+        .booking-subtitle {
+            font-family: 'Outfit', sans-serif;
+            color: #71717a;
+            font-size: 0.95rem;
+        }
+        
+        .progress-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin: 24px 0;
+            padding: 16px;
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 12px;
+        }
+        
+        .progress-spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #27272a;
+            border-top-color: #10b981;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .progress-text {
+            font-family: 'Outfit', sans-serif;
+            color: #34d399;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+        
+        .center-card {
+            background: #1c1c1f;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .center-card.calling {
+            border-color: #06b6d4;
+            background: rgba(6, 182, 212, 0.08);
+            animation: glow-pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes glow-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+            50% { box-shadow: 0 0 20px 0 rgba(6, 182, 212, 0.3); }
+        }
+        
+        .center-card.success {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.1);
+            box-shadow: 0 0 30px rgba(16, 185, 129, 0.2);
+        }
+        
+        .center-card.failed {
+            border-color: #3f3f46;
+            background: #18181b;
+            opacity: 0.6;
+        }
+        
+        .center-card.waiting {
+            opacity: 0.4;
+        }
+        
+        .center-icon {
+            font-size: 24px;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            background: #27272a;
+        }
+        
+        .center-icon.calling {
+            background: rgba(6, 182, 212, 0.15);
+            animation: phone-ring 1s ease-in-out infinite;
+        }
+        
+        @keyframes phone-ring {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(15deg); }
+            75% { transform: rotate(-15deg); }
+        }
+        
+        .center-icon.success {
+            background: rgba(16, 185, 129, 0.15);
+        }
+        
+        .center-info {
+            flex: 1;
+        }
+        
+        .center-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fafafa;
+        }
+        
+        .center-status {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.8rem;
+            color: #71717a;
+            margin-top: 4px;
+        }
+        
+        .center-status.calling {
+            color: #22d3ee;
+            font-weight: 500;
+        }
+        
+        .center-status.success {
+            color: #34d399;
+            font-weight: 600;
+        }
+        
+        .center-status.failed {
+            color: #ef4444;
+        }
+        
+        .call-animation {
+            display: inline-block;
+            animation: ring 1s ease-in-out infinite;
+        }
+        
+        @keyframes ring {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(15deg); }
+            75% { transform: rotate(-15deg); }
+        }
+        .center-status.failed {
+            color: #71717a;
+        }
+        
+        .success-banner {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.1) 100%);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            margin-top: 24px;
+        }
+        
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        .success-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #34d399;
+            margin-bottom: 8px;
+        }
+        
+        .success-subtitle {
+            font-family: 'Outfit', sans-serif;
+            color: #a1a1aa;
+            font-size: 0.9rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown('<div class="booking-container">', unsafe_allow_html=True)
+    
+    # Header
+    st.markdown('''
+        <div class="booking-header">
+            <div class="booking-logo-row">
+                <div class="booking-logo-icon" style="font-size: 16px; font-weight: 700; color: white;">VC</div>
+                <span class="booking-logo-text">VehicleCare AI</span>
+            </div>
+            <div class="booking-title">Automated Booking in Progress</div>
+            <div class="booking-subtitle">AI is calling service centers to find the best available appointment</div>
+        </div>
+    ''', unsafe_allow_html=True)
+    
+    # Get issue info
+    if st.session_state.current_issue:
+        issue = st.session_state.current_issue
+        reading = issue["reading"]
+        issue_title, issue_description, _ = get_issue_details(reading)
+        severity = get_severity_level(reading)
+        
+        # Show issue summary
+        st.info(f"**Issue:** {issue_title} | **Severity:** {severity}")
+        
+        # Initialize progress tracking
+        service_centers = list(SERVICE_CENTER_DIRECTORY.keys())
+        
+        # Progress placeholder
+        progress_container = st.container()
+        status_placeholder = st.empty()
+        
+        # Run the auto-booking process
+        if not st.session_state.auto_booking_complete:
+            
+            # Show initial state - all centers waiting
+            with progress_container:
+                for idx, center in enumerate(service_centers):
+                    st.markdown(f'''
+                        <div class="center-card waiting">
+                            <div class="center-icon" style="font-weight: 600; color: #71717a;">SC</div>
+                            <div class="center-info">
+                                <div class="center-name">{center}</div>
+                                <div class="center-status">Waiting...</div>
+                            </div>
+                        </div>
+                    ''', unsafe_allow_html=True)
+            
+            # Run the booking
+            progress_updates = []
+            
+            def progress_callback(progress: AutoBookingProgress):
+                progress_updates.append(progress)
+            
+            # Execute auto-booking
+            try:
+                customer = st.session_state.customer_info
+                result = run_auto_booking_sync(
+                    customer_name=customer["name"],
+                    customer_phone=customer["phone"],
+                    customer_email=customer["email"],
+                    vehicle_id=st.session_state.simulator.vehicle_id,
+                    issue_type=issue_title,
+                    issue_description=issue_description,
+                    severity=severity,
+                    google_api_key=os.getenv("GOOGLE_API_KEY", "demo-key"),
+                    azure_speech_key=os.getenv("AZURE_SPEECH_KEY", ""),
+                    azure_speech_region=os.getenv("AZURE_SPEECH_REGION", "eastus"),
+                    progress_callback=progress_callback
+                )
+                
+                st.session_state.auto_booking_result = result
+                st.session_state.auto_booking_complete = True
+                st.session_state.calling_centers_progress = progress_updates
+                
+                if result.status == BookingStatus.CONFIRMED:
+                    # Create appointment
+                    appointment = {
+                        "service_center": result.service_center,
+                        "service_type": issue_title,
+                        "date": datetime.now().date() + timedelta(days=1),
+                        "time": result.scheduled_time or "10:00 AM",
+                        "customer_name": customer["name"],
+                        "customer_phone": customer["phone"],
+                        "customer_email": customer["email"],
+                        "issue": issue_title,
+                        "status": "Confirmed (Auto-Booked)",
+                        "confirmation_number": result.confirmation_number,
+                        "booking_method": "Automated AI Call",
+                        "call_transcript": result.call_transcript,
+                        "created_at": datetime.now()
+                    }
+                    
+                    st.session_state.appointments.append(appointment)
+                    st.session_state.latest_appointment = appointment
+                    st.session_state.current_page = "confirmation"
+                    st.rerun()
+                else:
+                    status_placeholder.error(f"Could not book with any service center: {result.notes}")
+                    
+            except Exception as e:
+                st.session_state.auto_booking_complete = True
+                status_placeholder.error(f"Booking failed: {str(e)}")
+        
+        # Show final progress - only show final status per center (not duplicates)
+        if st.session_state.calling_centers_progress:
+            progress_container.empty()
+            
+            # Get only the final status for each center (skip "calling" if there's a result)
+            final_status_per_center = {}
+            for progress in st.session_state.calling_centers_progress:
+                center = progress.current_center
+                # Always update - later statuses override earlier ones
+                final_status_per_center[center] = progress
+            
+            with progress_container:
+                for center_name in service_centers:
+                    if center_name in final_status_per_center:
+                        progress = final_status_per_center[center_name]
+                        if progress.status == "confirmed":
+                            card_class = "success"
+                            icon = "✓"
+                            status_text = "Booking Confirmed!"
+                        elif progress.status == "calling":
+                            card_class = "calling"
+                            icon = "●"
+                            status_text = "Calling..."
+                        else:
+                            card_class = "failed"
+                            icon = "×"
+                            status_text = "No availability"
+                    else:
+                        # Center not yet called
+                        card_class = "waiting"
+                        icon = "🏢"
+                        status_text = "Waiting..."
+                    
+                    st.markdown(f'''
+                        <div class="center-card {card_class}">
+                            <div class="center-icon">{icon}</div>
+                            <div class="center-info">
+                                <div class="center-name">{center_name}</div>
+                                <div class="center-status {card_class}">{status_text}</div>
+                            </div>
+                        </div>
+                    ''', unsafe_allow_html=True)
+        
+        # Retry button if failed
+        if st.session_state.auto_booking_complete and (
+            not st.session_state.auto_booking_result or 
+            st.session_state.auto_booking_result.status != BookingStatus.CONFIRMED
+        ):
+            st.markdown("<br>", unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Retry Booking", type="primary", use_container_width=True):
+                    st.session_state.auto_booking_complete = False
+                    st.session_state.calling_centers_progress = []
+                    st.rerun()
+            with col2:
+                if st.button("← Back to Dashboard", type="secondary", use_container_width=True):
+                    st.session_state.current_page = "dashboard"
+                    st.session_state.auto_booking_triggered = False
+                    st.session_state.auto_booking_complete = False
+                    st.session_state.show_notification = False
+                    st.rerun()
+    else:
+        st.warning("No issue detected. Returning to dashboard...")
+        st.session_state.current_page = "dashboard"
+        st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
 def render_schedule_service_page():
-    """Render the Schedule Service page."""
-    st.markdown('<div style="text-align: center; font-size: 32px; font-weight: bold; margin-bottom: 30px;">VehicleCare AI</div>', unsafe_allow_html=True)
+    """Render the Schedule Service page with automated booking option."""
+    
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        
+        .schedule-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .schedule-logo {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .booking-mode-card {
+            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 16px;
+            padding: 24px;
+            margin: 16px 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+            border: 2px solid #e2e8f0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .booking-mode-card:hover {
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px -3px rgba(59, 130, 246, 0.15);
+        }
+        
+        .booking-mode-card.selected {
+            border-color: #3b82f6;
+            background: linear-gradient(145deg, #eff6ff 0%, #dbeafe 100%);
+        }
+        
+        .mode-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+        }
+        
+        .mode-title {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+        
+        .mode-description {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 14px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+        
+        .ai-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .call-log-container {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 16px;
+            margin: 16px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+        
+        .call-log-entry {
+            padding: 8px 0;
+            border-bottom: 1px solid #334155;
+        }
+        
+        .call-log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .call-log-time {
+            color: #64748b;
+            font-size: 11px;
+        }
+        
+        .call-log-status {
+            color: #22c55e;
+        }
+        
+        .call-log-ai {
+            color: #8b5cf6;
+        }
+        
+        .call-log-service {
+            color: #3b82f6;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown('''
+        <div class="schedule-header">
+            <div class="schedule-logo">VehicleCare AI</div>
+        </div>
+    ''', unsafe_allow_html=True)
     
     # Back button
     if st.button("← Back"):
         st.session_state.current_page = "issue_details"
+        st.session_state.auto_booking_status = None
+        st.session_state.auto_booking_logs = []
         st.rerun()
     
-    st.markdown("### Schedule Service Appointment")
+    st.markdown("### 📅 Schedule Service Appointment")
     
     if st.session_state.current_issue:
         issue = st.session_state.current_issue
         reading = issue["reading"]
-        issue_title, _, _ = get_issue_details(reading)
+        issue_title, issue_description, _ = get_issue_details(reading)
+        severity = get_severity_level(reading)
         
-        # Service center selection
-        service_centers = [
-            "VehicleCare Certified Center - Downtown",
-            "VehicleCare Certified Center - Uptown",
-            "VehicleCare Certified Center - Westside",
-            "VehicleCare Certified Center - Eastside"
-        ]
+        # Show issue summary
+        st.info(f"**Issue:** {issue_title} | **Severity:** {severity}")
         
+        # Booking mode selection
+        st.markdown("#### Choose Booking Method")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Auto-Book via AI Call", type="primary", use_container_width=True, 
+                        help="Our AI will call the service center and book the appointment for you"):
+                st.session_state.booking_mode = "auto"
+        
+        with col2:
+            if st.button("✍️ Manual Booking", type="secondary", use_container_width=True,
+                        help="Fill in the form yourself"):
+                st.session_state.booking_mode = "manual"
+        
+        # Initialize booking mode
+        if "booking_mode" not in st.session_state:
+            st.session_state.booking_mode = None
+        
+        st.markdown("---")
+        
+        # Service center selection (common to both modes)
+        service_centers = list(SERVICE_CENTER_DIRECTORY.keys())
         selected_center = st.selectbox("Select Service Center", service_centers)
+        
+        # Show service center info
+        center_info = SERVICE_CENTER_DIRECTORY.get(selected_center, {})
+        if center_info:
+            st.caption(f"📍 {center_info.get('address', '')} | ⏰ {center_info.get('hours', '')}")
         
         # Service type (auto-fill based on issue)
         service_types = {
@@ -408,69 +1534,220 @@ def render_schedule_service_page():
             "Fuel System Malfunction": "Fuel System Inspection & Repair"
         }
         
-        # Create options list with unique services
         service_options = sorted(list(set(service_types.values()))) + ["General Inspection & Diagnosis"]
-        
-        # Get default service based on issue
         default_service = service_types.get(issue_title, "General Inspection & Diagnosis")
         
-        # Find index of default service in options
         try:
             default_index = service_options.index(default_service)
         except ValueError:
-            default_index = len(service_options) - 1  # Default to "General Inspection & Diagnosis"
+            default_index = len(service_options) - 1
         
         service_type = st.selectbox("Service Type", service_options, index=default_index)
         
-        # Date selection
-        min_date = datetime.now().date() + timedelta(days=1)
-        max_date = datetime.now().date() + timedelta(days=30)
-        selected_date = st.date_input("Select Date", min_value=min_date, max_value=max_date, value=min_date)
+        # Date and time selection
+        col1, col2 = st.columns(2)
+        with col1:
+            min_date = datetime.now().date() + timedelta(days=1)
+            max_date = datetime.now().date() + timedelta(days=30)
+            selected_date = st.date_input("Preferred Date", min_value=min_date, max_value=max_date, value=min_date)
         
-        # Time selection
-        time_slots = [
-            "08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
-            "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
-            "04:00 PM", "05:00 PM"
-        ]
-        selected_time = st.selectbox("Select Time", time_slots)
+        with col2:
+            time_slots = [
+                "08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM",
+                "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM",
+                "04:00 PM", "05:00 PM"
+            ]
+            selected_time = st.selectbox("Preferred Time", time_slots)
         
         # Customer information
-        st.markdown("### Customer Information")
-        customer_name = st.text_input("Name", value="John Doe")
-        customer_phone = st.text_input("Phone", value="+1 (555) 123-4567")
-        customer_email = st.text_input("Email", value="john.doe@example.com")
+        st.markdown("#### Customer Information")
+        col1, col2 = st.columns(2)
+        with col1:
+            customer_name = st.text_input("Name", value="John Doe")
+            customer_phone = st.text_input("Phone", value="+1 (555) 123-4567")
+        with col2:
+            customer_email = st.text_input("Email", value="john.doe@example.com")
+            vehicle_id = st.text_input("Vehicle ID", value=st.session_state.simulator.vehicle_id)
         
-        # Confirm booking button
-        if st.button("Confirm Booking", type="primary", use_container_width=True):
-            # Create appointment
-            appointment = {
-                "service_center": selected_center,
-                "service_type": service_type,
-                "date": selected_date,
-                "time": selected_time,
-                "customer_name": customer_name,
-                "customer_phone": customer_phone,
-                "customer_email": customer_email,
-                "issue": issue_title,
-                "status": "Confirmed",
-                "created_at": datetime.now()
-            }
+        st.markdown("---")
+        
+        # AUTO-BOOKING MODE
+        if st.session_state.booking_mode == "auto":
+            st.markdown("### AI-Powered Automated Booking")
             
-            st.session_state.appointments.append(appointment)
-            st.session_state.latest_appointment = appointment
-            st.session_state.current_page = "confirmation"
-            st.rerun()
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
+                        border-left: 4px solid #0284c7; padding: 16px 20px; 
+                        border-radius: 0 12px 12px 0; margin-bottom: 20px;">
+                <p style="margin: 0; color: #0c4a6e; font-size: 14px; line-height: 1.6;">
+                    <strong>How it works:</strong><br>
+                    1. Our AI agent will call the service center on your behalf<br>
+                    2. It will explain your vehicle issue and request an appointment<br>
+                    3. The AI will negotiate the best available time slot<br>
+                    4. You'll receive confirmation when booking is complete
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # API Configuration check
+            api_configured = all([
+                os.getenv("GOOGLE_API_KEY"),
+                os.getenv("AZURE_SPEECH_KEY"),
+                os.getenv("AZURE_SPEECH_REGION")
+            ])
+            
+            if not api_configured:
+                st.warning("⚠️ **Demo Mode**: API keys not configured. Running in simulation mode.")
+            
+            # Start auto-booking button
+            if not st.session_state.booking_in_progress:
+                if st.button("🚀 Start AI Booking Call", type="primary", use_container_width=True):
+                    st.session_state.booking_in_progress = True
+                    st.session_state.auto_booking_logs = []
+                    st.session_state.auto_booking_status = "initiating"
+                    st.rerun()
+            
+            # Show booking progress
+            if st.session_state.booking_in_progress:
+                st.markdown("### Call in Progress...")
+                
+                # Progress indicator
+                progress_placeholder = st.empty()
+                status_placeholder = st.empty()
+                log_placeholder = st.empty()
+                
+                # Create booking request
+                booking_request = BookingRequest(
+                    customer_name=customer_name,
+                    customer_phone=customer_phone,
+                    customer_email=customer_email,
+                    vehicle_id=vehicle_id,
+                    issue_type=issue_title,
+                    issue_description=issue_description,
+                    severity=severity,
+                    preferred_date=datetime.combine(selected_date, datetime.min.time()),
+                    preferred_time=selected_time,
+                    service_center_phone=get_service_center_phone(selected_center),
+                    service_center_name=selected_center
+                )
+                
+                # Status callback function
+                def status_callback(status: BookingStatus, message: str):
+                    st.session_state.auto_booking_logs.append({
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "status": status.value,
+                        "message": message
+                    })
+                
+                # Run the booking asynchronously
+                async def run_booking():
+                    result = await book_appointment_automatically(
+                        booking_request=booking_request,
+                        google_api_key=os.getenv("GOOGLE_API_KEY", "demo-key"),
+                        azure_speech_key=os.getenv("AZURE_SPEECH_KEY", "demo-key"),
+                        azure_speech_region=os.getenv("AZURE_SPEECH_REGION", "eastus"),
+                        status_callback=status_callback
+                    )
+                    return result
+                
+                # Execute booking
+                try:
+                    result = asyncio.run(run_booking())
+                    st.session_state.auto_booking_result = result
+                    st.session_state.booking_in_progress = False
+                    
+                    if result.status == BookingStatus.CONFIRMED:
+                        # Create appointment from result
+                        appointment = {
+                            "service_center": selected_center,
+                            "service_type": service_type,
+                            "date": selected_date,
+                            "time": result.scheduled_time or selected_time,
+                            "customer_name": customer_name,
+                            "customer_phone": customer_phone,
+                            "customer_email": customer_email,
+                            "issue": issue_title,
+                            "status": "Confirmed (AI Booked)",
+                            "confirmation_number": result.confirmation_number,
+                            "booking_method": "Automated AI Call",
+                            "call_transcript": result.call_transcript,
+                            "created_at": datetime.now()
+                        }
+                        
+                        st.session_state.appointments.append(appointment)
+                        st.session_state.latest_appointment = appointment
+                        st.session_state.current_page = "confirmation"
+                        st.rerun()
+                    else:
+                        st.error(f"Booking failed: {result.notes}")
+                        st.session_state.booking_in_progress = False
+                        
+                except Exception as e:
+                    st.error(f"Error during booking: {str(e)}")
+                    st.session_state.booking_in_progress = False
+                
+                # Display call logs
+                if st.session_state.auto_booking_logs:
+                    st.markdown("#### Call Log")
+                    log_html = '<div class="call-log-container">'
+                    for log in st.session_state.auto_booking_logs:
+                        speaker_class = "call-log-ai" if "AI:" in log["message"] else "call-log-service"
+                        if "Service Center:" in log["message"]:
+                            speaker_class = "call-log-service"
+                        log_html += f'''
+                        <div class="call-log-entry">
+                            <span class="call-log-time">[{log["time"]}]</span>
+                            <span class="call-log-status">[{log["status"]}]</span>
+                            <span class="{speaker_class}">{log["message"]}</span>
+                        </div>
+                        '''
+                    log_html += '</div>'
+                    st.markdown(log_html, unsafe_allow_html=True)
+        
+        # MANUAL BOOKING MODE  
+        elif st.session_state.booking_mode == "manual":
+            st.markdown("### ✍️ Manual Booking")
+            
+            if st.button("Confirm Booking", type="primary", use_container_width=True):
+                # Create appointment
+                appointment = {
+                    "service_center": selected_center,
+                    "service_type": service_type,
+                    "date": selected_date,
+                    "time": selected_time,
+                    "customer_name": customer_name,
+                    "customer_phone": customer_phone,
+                    "customer_email": customer_email,
+                    "issue": issue_title,
+                    "status": "Confirmed",
+                    "booking_method": "Manual",
+                    "created_at": datetime.now()
+                }
+                
+                st.session_state.appointments.append(appointment)
+                st.session_state.latest_appointment = appointment
+                st.session_state.current_page = "confirmation"
+                st.rerun()
+        
+        else:
+            # No mode selected yet - show instructions
+            st.markdown("""
+            <div style="text-align: center; padding: 40px; color: #64748b;">
+                <p style="font-size: 16px;">👆 Select a booking method above to continue</p>
+                <p style="font-size: 14px;">
+                    <strong>Auto-Book</strong>: Our AI calls the service center for you<br>
+                    <strong>Manual</strong>: Fill in the form yourself
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
 
 def render_confirmation_page():
-    """Render the Appointment Confirmation page with modern, polished design."""
+    """Render the Appointment Confirmation page with premium dark design."""
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-        
-        .confirm-page-container {
+        .confirm-container {
             max-width: 700px;
             margin: 0 auto;
             padding: 20px;
@@ -479,97 +1756,121 @@ def render_confirmation_page():
         .confirm-header {
             text-align: center;
             margin-bottom: 40px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #27272a;
         }
         
-        .confirm-logo {
-            font-family: 'DM Sans', sans-serif;
-            font-size: 28px;
+        .confirm-logo-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        
+        .confirm-logo-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+        }
+        
+        .confirm-logo-text {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
             font-weight: 700;
-            background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            color: #fafafa;
         }
         
         .confirm-title {
-            font-family: 'DM Sans', sans-serif;
-            font-size: 32px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.75rem;
             font-weight: 700;
-            color: #1e293b;
-            margin-top: 24px;
+            color: #fafafa;
             margin-bottom: 8px;
         }
         
         .confirm-subtitle {
-            font-family: 'DM Sans', sans-serif;
-            color: #64748b;
-            font-size: 15px;
+            font-family: 'Outfit', sans-serif;
+            color: #71717a;
+            font-size: 0.95rem;
         }
         
-        .status-banner {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 20px 32px;
+        .success-banner {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 182, 212, 0.15) 100%);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 24px;
             border-radius: 16px;
             text-align: center;
             margin-bottom: 28px;
-            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.25);
+            box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
         }
         
-        .status-icon {
-            font-size: 48px;
-            margin-bottom: 12px;
+        .success-icon {
+            font-size: 56px;
+            margin-bottom: 16px;
         }
         
-        .status-text {
-            font-family: 'DM Sans', sans-serif;
-            font-size: 22px;
+        .success-text {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
             font-weight: 700;
-            letter-spacing: 0.5px;
+            color: #34d399;
+            letter-spacing: 0.02em;
         }
         
         .details-card {
-            background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+            background: #1c1c1f;
+            border: 1px solid #27272a;
             border-radius: 16px;
-            padding: 28px 32px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-            border: 1px solid #e2e8f0;
+            padding: 24px;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+        }
+        
+        .details-card:hover {
+            background: #222225;
+            border-color: #3f3f46;
         }
         
         .details-card-header {
             display: flex;
             align-items: center;
-            gap: 12px;
-            margin-bottom: 24px;
+            gap: 14px;
+            margin-bottom: 20px;
             padding-bottom: 16px;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid #27272a;
         }
         
         .details-card-icon {
             width: 44px;
             height: 44px;
-            border-radius: 12px;
-            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            border-radius: 10px;
+            background: rgba(6, 182, 212, 0.15);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 22px;
+            font-size: 20px;
         }
         
         .details-card-title {
-            font-family: 'DM Sans', sans-serif;
-            font-size: 18px;
-            font-weight: 700;
-            color: #1e293b;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fafafa;
         }
         
         .details-row {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            padding: 14px 0;
-            border-bottom: 1px solid #f1f5f9;
+            padding: 12px 0;
+            border-bottom: 1px solid #1f1f23;
         }
         
         .details-row:last-child {
@@ -577,26 +1878,26 @@ def render_confirmation_page():
         }
         
         .details-label {
-            font-family: 'DM Sans', sans-serif;
-            color: #64748b;
-            font-size: 14px;
+            font-family: 'Outfit', sans-serif;
+            color: #71717a;
+            font-size: 0.875rem;
             font-weight: 500;
         }
         
         .details-value {
-            font-family: 'DM Sans', sans-serif;
-            color: #1e293b;
-            font-size: 15px;
-            font-weight: 600;
+            font-family: 'IBM Plex Mono', monospace;
+            color: #fafafa;
+            font-size: 0.9rem;
+            font-weight: 500;
             text-align: right;
             max-width: 60%;
         }
         
         .info-banner {
-            background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
-            border-left: 4px solid #eab308;
-            padding: 18px 24px;
-            border-radius: 0 12px 12px 0;
+            background: rgba(245, 158, 11, 0.1);
+            border-left: 3px solid #f59e0b;
+            padding: 16px 20px;
+            border-radius: 0 10px 10px 0;
             margin-bottom: 28px;
             display: flex;
             align-items: center;
@@ -608,9 +1909,9 @@ def render_confirmation_page():
         }
         
         .info-banner-text {
-            font-family: 'DM Sans', sans-serif;
-            color: #854d0e;
-            font-size: 15px;
+            font-family: 'Outfit', sans-serif;
+            color: #fbbf24;
+            font-size: 0.9rem;
             font-weight: 500;
             line-height: 1.5;
         }
@@ -655,13 +1956,16 @@ def render_confirmation_page():
         unsafe_allow_html=True
     )
     
-    st.markdown('<div class="confirm-page-container">', unsafe_allow_html=True)
+    st.markdown('<div class="confirm-container">', unsafe_allow_html=True)
     
-    # Header
+    # Header with premium styling
     st.markdown('''
         <div class="confirm-header">
-            <div class="confirm-logo">VehicleCare AI</div>
-            <div class="confirm-title">Appointment Confirmed!</div>
+            <div class="confirm-logo-row">
+                <div class="confirm-logo-icon" style="font-size: 16px; font-weight: 700; color: white;">VC</div>
+                <span class="confirm-logo-text">VehicleCare AI</span>
+            </div>
+            <div class="confirm-title">Appointment Confirmed</div>
             <div class="confirm-subtitle">Your service appointment has been successfully scheduled</div>
         </div>
     ''', unsafe_allow_html=True)
@@ -669,21 +1973,33 @@ def render_confirmation_page():
     if st.session_state.latest_appointment:
         appointment = st.session_state.latest_appointment
         
-        # Status Banner
+        # Success Banner
         st.markdown('''
-            <div class="status-banner">
-                <div class="status-icon">✓</div>
-                <div class="status-text">Status: Confirmed</div>
+            <div class="success-banner">
+                <div class="success-icon" style="font-size: 40px; color: #34d399;">✓</div>
+                <div class="success-text">Booking Successful</div>
             </div>
         ''', unsafe_allow_html=True)
         
         # Appointment Details Card
         date_str = appointment["date"].strftime("%A, %B %d, %Y")
+        confirmation_num = appointment.get("confirmation_number", "N/A")
+        booking_method = appointment.get("booking_method", "Manual")
+        
+        # Show AI badge if auto-booked
+        method_badge = ""
+        if booking_method == "Automated AI Call":
+            method_badge = '<span style="background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-left: 8px;">AI Booked</span>'
+        
         st.markdown(f'''
             <div class="details-card">
                 <div class="details-card-header">
-                    <div class="details-card-icon">📋</div>
-                    <div class="details-card-title">Appointment Details</div>
+                    <div class="details-card-icon" style="font-weight: 600; color: #22d3ee;">≡</div>
+                    <div class="details-card-title">Appointment Details {method_badge}</div>
+                </div>
+                <div class="details-row">
+                    <span class="details-label">Confirmation #</span>
+                    <span class="details-value">{confirmation_num}</span>
                 </div>
                 <div class="details-row">
                     <span class="details-label">Service Center</span>
@@ -701,13 +2017,28 @@ def render_confirmation_page():
                     <span class="details-label">Time</span>
                     <span class="details-value">{appointment["time"]}</span>
                 </div>
+                <div class="details-row">
+                    <span class="details-label">Booking Method</span>
+                    <span class="details-value">{booking_method}</span>
+                </div>
             </div>
         ''', unsafe_allow_html=True)
+        
+        # Show call transcript if available (for AI bookings)
+        if appointment.get("call_transcript"):
+            with st.expander("View Call Transcript"):
+                st.markdown(f'''
+                    <div style="background: #1e293b; color: #e2e8f0; padding: 16px; 
+                                border-radius: 8px; font-family: monospace; font-size: 13px;
+                                white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
+{appointment["call_transcript"]}
+                    </div>
+                ''', unsafe_allow_html=True)
         
         # Info Banner
         st.markdown('''
             <div class="info-banner">
-                <span class="info-banner-icon">💡</span>
+                <span class="info-banner-icon" style="color: #fbbf24;">i</span>
                 <span class="info-banner-text">Please arrive 10 minutes early and bring your vehicle registration documents.</span>
             </div>
         ''', unsafe_allow_html=True)
@@ -715,12 +2046,12 @@ def render_confirmation_page():
         # Action Buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("📄 View Appointments", type="secondary", use_container_width=True):
+            if st.button("View Appointments", type="secondary", use_container_width=True):
                 st.session_state.current_page = "appointments"
                 st.rerun()
         
         with col2:
-            if st.button("🏠 Back to Dashboard", type="primary", use_container_width=True):
+            if st.button("Back to Dashboard", type="primary", use_container_width=True):
                 st.session_state.current_page = "dashboard"
                 st.session_state.show_notification = False
                 st.rerun()
@@ -729,44 +2060,162 @@ def render_confirmation_page():
 
 
 def render_vehicle_health_dashboard():
-    """Render the Vehicle Health Dashboard view based on wireframe."""
+    """Render the Vehicle Health Dashboard with premium dark design."""
     st.markdown(
         """
         <style>
+        .health-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
         .health-header {
-            text-align: center;
-            font-size: 32px;
-            font-weight: bold;
-            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding-bottom: 24px;
+            margin-bottom: 32px;
+            border-bottom: 1px solid #27272a;
         }
+        
+        .health-logo {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);
+        }
+        
+        .health-header-text h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #fafafa;
+            margin: 0;
+        }
+        
+        .health-header-text p {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            color: #71717a;
+            margin: 4px 0 0 0;
+        }
+        
         .health-box {
-            border: 2px solid #333;
-            padding: 20px;
-            margin: 20px 0;
+            background: #1c1c1f;
+            border: 1px solid #27272a;
+            border-radius: 16px;
+            padding: 24px;
+            margin: 16px 0;
+            transition: all 0.2s ease;
         }
+        
+        .health-box:hover {
+            background: #222225;
+            border-color: #3f3f46;
+        }
+        
         .health-title {
-            font-size: 20px;
-            font-weight: bold;
-            margin-bottom: 15px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fafafa;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #27272a;
         }
+        
         .health-detail {
             display: flex;
             justify-content: space-between;
-            margin: 10px 0;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #1f1f23;
         }
+        
+        .health-detail:last-child {
+            border-bottom: none;
+        }
+        
         .health-label {
-            color: #666;
+            font-family: 'Outfit', sans-serif;
+            color: #71717a;
+            font-size: 0.875rem;
         }
+        
         .health-value {
-            font-weight: bold;
-            text-align: right;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 600;
+            color: #fafafa;
+            font-size: 0.9rem;
+        }
+        
+        .health-score-container {
+            text-align: center;
+            padding: 32px;
+        }
+        
+        .health-score-ring {
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            background: conic-gradient(#10b981 var(--score-pct), #27272a 0);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            position: relative;
+        }
+        
+        .health-score-inner {
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: #1c1c1f;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .health-score-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #10b981;
+        }
+        
+        .health-score-label {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.8rem;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
     
-    st.markdown('<div class="health-header">VehicleCare AI</div>', unsafe_allow_html=True)
+    # Back button
+    if st.button("← Back to Dashboard"):
+        st.session_state.current_page = "dashboard"
+        st.rerun()
+    
+    # Premium Header
+    st.markdown('''
+        <div class="health-header">
+            <div class="health-logo" style="font-size: 18px; font-weight: 700; color: white;">+</div>
+            <div class="health-header-text">
+                <h1>Vehicle Health Dashboard</h1>
+                <p>Real-time diagnostics and predictive maintenance</p>
+            </div>
+        </div>
+    ''', unsafe_allow_html=True)
     
     # Get latest reading
     if "latest_reading" in st.session_state:
@@ -865,54 +2314,82 @@ def render_appointments_page():
     else:
         st.info("No appointments scheduled yet.")
 
-# Sidebar
+# Sidebar with Premium Styling
 with st.sidebar:
-    st.title("VehicleCare AI")
-    st.markdown("---")
+    # Premium Logo Header
+    st.markdown('''
+        <div style="display: flex; align-items: center; gap: 12px; padding: 8px 0 20px 0; margin-bottom: 8px; border-bottom: 1px solid #27272a;">
+            <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: white; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">VC</div>
+            <div>
+                <div style="font-family: \'Outfit\', sans-serif; font-size: 1.2rem; font-weight: 700; color: #fafafa; letter-spacing: -0.02em;">VehicleCare</div>
+                <div style="font-family: \'Outfit\', sans-serif; font-size: 0.7rem; color: #71717a; text-transform: uppercase; letter-spacing: 0.1em;">AI • Predictive</div>
+            </div>
+        </div>
+    ''', unsafe_allow_html=True)
     
-    st.subheader("Vehicle Control")
-    vehicle_id = st.text_input("Vehicle ID", value="HERO-MNM-01")
+    st.markdown('''
+        <div style="font-family: \'Outfit\', sans-serif; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #71717a; margin: 16px 0 8px 0;">Vehicle Control</div>
+    ''', unsafe_allow_html=True)
+    vehicle_id = st.text_input("Vehicle ID", value="HERO-MNM-01", label_visibility="collapsed", placeholder="Enter Vehicle ID")
     st.session_state.simulator.vehicle_id = vehicle_id
     
-    st.markdown("---")
-    
-    st.subheader("Fault Simulation")
+    st.markdown('''
+        <div style="font-family: \'Outfit\', sans-serif; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #71717a; margin: 24px 0 8px 0;">Fault Simulation</div>
+    ''', unsafe_allow_html=True)
     fault_type = st.selectbox(
         "Simulate Component Failure",
         ["None", "Overheat", "Vibration", "Battery Failure", 
          "Throttle Malfunction", "Engine Misfire", 
          "Fuel System Issue", "Cooling System Failure"],
-        index=0
+        index=0,
+        label_visibility="collapsed"
     )
     
+    # Fault status indicator
+    fault_active = False
     if fault_type == "Overheat":
         st.session_state.simulator.inject_fault("overheat")
-        st.warning("⚠️ Overheating fault active")
+        fault_active = True
     elif fault_type == "Vibration":
         st.session_state.simulator.inject_fault("vibration")
-        st.warning("⚠️ Vibration fault active")
+        fault_active = True
     elif fault_type == "Battery Failure":
         st.session_state.simulator.inject_fault("battery_failure")
-        st.warning("⚠️ Battery failure active")
+        fault_active = True
     elif fault_type == "Throttle Malfunction":
         st.session_state.simulator.inject_fault("throttle_malfunction")
-        st.warning("⚠️ Throttle malfunction active")
+        fault_active = True
     elif fault_type == "Engine Misfire":
         st.session_state.simulator.inject_fault("engine_misfire")
-        st.warning("⚠️ Engine misfire active")
+        fault_active = True
     elif fault_type == "Fuel System Issue":
         st.session_state.simulator.inject_fault("fuel_system")
-        st.warning("⚠️ Fuel system issue active")
+        fault_active = True
     elif fault_type == "Cooling System Failure":
         st.session_state.simulator.inject_fault("cooling_system")
-        st.warning("⚠️ Cooling system failure active")
+        fault_active = True
     else:
         st.session_state.simulator.inject_fault(None)
-        st.success("✓ Normal operation")
     
-    st.markdown("---")
+    # Premium fault status indicator
+    if fault_active:
+        st.markdown(f'''
+            <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; margin: 8px 0;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; animation: pulse 2s infinite;"></span>
+                <span style="font-family: \'Outfit\', sans-serif; font-size: 0.8rem; color: #fca5a5; font-weight: 500;">Fault Active</span>
+            </div>
+        ''', unsafe_allow_html=True)
+    else:
+        st.markdown('''
+            <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; margin: 8px 0;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+                <span style="font-family: \'Outfit\', sans-serif; font-size: 0.8rem; color: #34d399; font-weight: 500;">Normal Operation</span>
+            </div>
+        ''', unsafe_allow_html=True)
     
-    st.subheader("Dashboard Controls")
+    st.markdown('''
+        <div style="font-family: \'Outfit\', sans-serif; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #71717a; margin: 24px 0 8px 0;">Dashboard Controls</div>
+    ''', unsafe_allow_html=True)
     auto_update = st.checkbox("Auto Update", value=st.session_state.auto_update)
     st.session_state.auto_update = auto_update
     
@@ -969,37 +2446,62 @@ with st.sidebar:
             st.session_state.current_issue = anomaly_data
             st.session_state.show_notification = True
     
-    if st.button("Clear History"):
+    if st.button("Clear History", use_container_width=True):
         st.session_state.readings_history = []
         st.session_state.anomalies_detected = []
         st.rerun()
     
-    st.markdown("---")
-    st.markdown("**Status:**")
-    st.info(f"Readings: {len(st.session_state.readings_history)}")
-    st.info(f"Anomalies: {len(st.session_state.anomalies_detected)}")
+    # Status Section with premium styling
+    st.markdown('''
+        <div style="font-family: \'Outfit\', sans-serif; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #71717a; margin: 24px 0 12px 0;">System Status</div>
+    ''', unsafe_allow_html=True)
     
-    st.markdown("---")
-    st.markdown("**Quick Access:**")
-    if st.button("Vehicle Health Dashboard", use_container_width=True):
+    readings_count = len(st.session_state.readings_history)
+    anomalies_count = len(st.session_state.anomalies_detected)
+    
+    st.markdown(f'''
+        <div style="display: grid; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #1c1c1f; border: 1px solid #27272a; border-radius: 8px;">
+                <span style="font-family: \'Outfit\', sans-serif; font-size: 0.8rem; color: #a1a1aa;">Readings</span>
+                <span style="font-family: \'IBM Plex Mono\', monospace; font-size: 0.9rem; color: #fafafa; font-weight: 600;">{readings_count}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #1c1c1f; border: 1px solid {'rgba(239, 68, 68, 0.3)' if anomalies_count > 0 else '#27272a'}; border-radius: 8px;">
+                <span style="font-family: \'Outfit\', sans-serif; font-size: 0.8rem; color: #a1a1aa;">Anomalies</span>
+                <span style="font-family: \'IBM Plex Mono\', monospace; font-size: 0.9rem; color: {'#f87171' if anomalies_count > 0 else '#fafafa'}; font-weight: 600;">{anomalies_count}</span>
+            </div>
+        </div>
+    ''', unsafe_allow_html=True)
+    
+    # Quick Access
+    st.markdown('''
+        <div style="font-family: \'Outfit\', sans-serif; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #71717a; margin: 24px 0 12px 0;">Quick Access</div>
+    ''', unsafe_allow_html=True)
+    
+    if st.button("Health Dashboard", use_container_width=True):
         st.session_state.current_page = "health_dashboard"
         st.rerun()
     
     if st.session_state.appointments:
-        if st.button(f"View Appointments ({len(st.session_state.appointments)})", use_container_width=True):
+        if st.button(f"Appointments ({len(st.session_state.appointments)})", use_container_width=True):
             st.session_state.current_page = "appointments"
             st.rerun()
 
 # Main dashboard - Page routing
-# Check if there's a notification to show
+# Check if there's a notification to show - AUTO-BOOKING ON ANOMALY DETECTION
 if st.session_state.show_notification and st.session_state.current_page == "dashboard":
-    # Auto-navigate to issue details page when anomaly detected
-    st.session_state.current_page = "issue_details"
+    # Auto-navigate directly to auto-booking progress when anomaly detected
+    st.session_state.auto_booking_triggered = False  # Reset for new booking
+    st.session_state.auto_booking_complete = False
+    st.session_state.calling_centers_progress = []
+    st.session_state.current_page = "auto_booking_progress"
     st.rerun()
 
 # Route to appropriate page
 if st.session_state.current_page == "issue_details":
     render_issue_details_page()
+    st.stop()
+elif st.session_state.current_page == "auto_booking_progress":
+    render_auto_booking_progress_page()
     st.stop()
 elif st.session_state.current_page == "schedule_service":
     render_schedule_service_page()
@@ -1014,9 +2516,22 @@ elif st.session_state.current_page == "appointments":
     render_appointments_page()
     st.stop()
 
-# Default: Full dashboard
-st.title("VehicleCare AI - Predictive Maintenance Dashboard")
-st.markdown("Real-time vehicle telemetry monitoring and anomaly detection")
+# Default: Full dashboard with premium header
+st.markdown('''
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 0 24px 0; margin-bottom: 24px; border-bottom: 1px solid #27272a;">
+        <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="width: 56px; height: 56px; background: linear-gradient(135deg, #10b981 0%, #06b6d4 100%); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: white; box-shadow: 0 8px 24px rgba(16, 185, 129, 0.3);">VC</div>
+            <div>
+                <h1 style="font-family: \'Outfit\', sans-serif; font-size: 1.75rem; font-weight: 700; color: #fafafa; margin: 0; letter-spacing: -0.02em;">Predictive Maintenance</h1>
+                <p style="font-family: \'Outfit\', sans-serif; font-size: 0.9rem; color: #71717a; margin: 4px 0 0 0;">Real-time vehicle telemetry monitoring and AI anomaly detection</p>
+            </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); padding: 8px 16px; border-radius: 24px;">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: pulse 2s ease-in-out infinite;"></span>
+            <span style="font-family: \'Outfit\', sans-serif; font-size: 0.8rem; color: #34d399; font-weight: 500;">Live Monitoring</span>
+        </div>
+    </div>
+''', unsafe_allow_html=True)
 
 # Auto-update logic - Generate new data based on interval
 if st.session_state.auto_update:
@@ -1075,7 +2590,7 @@ if st.session_state.auto_update:
     time_until_next = max(0, st.session_state.update_interval - time_since_last_update)
     
     # Show refresh status
-    st.info(f"⏱️ Auto-updating every {st.session_state.update_interval}s | Next update in {int(time_until_next)}s | Total readings: {len(st.session_state.readings_history)}")
+    st.info(f"Auto-updating every {st.session_state.update_interval}s | Next update in {int(time_until_next)}s | Total readings: {len(st.session_state.readings_history)}")
 
 # Display latest anomaly alert with notification banner (compact)
 if st.session_state.anomalies_detected:
@@ -1262,13 +2777,31 @@ if latest:
         )
         fig.add_hline(y=0, line_dash="dash", line_color="red", row=3, col=2, annotation_text="Anomaly Threshold")
         
-        # Update layout with better spacing
+        # Update layout with dark theme styling
         fig.update_layout(
             height=1000,
             showlegend=False,
             title_text="Vehicle Telemetry Dashboard",
             title_x=0.5,
-            margin=dict(l=50, r=50, t=80, b=50)
+            margin=dict(l=50, r=50, t=80, b=50),
+            paper_bgcolor='rgba(28, 28, 31, 1)',
+            plot_bgcolor='rgba(24, 24, 27, 1)',
+            font=dict(color='#a1a1aa', family='Outfit, sans-serif'),
+            title_font=dict(color='#fafafa', size=18, family='Outfit, sans-serif')
+        )
+        
+        # Update axes for dark theme
+        fig.update_xaxes(
+            gridcolor='#27272a',
+            linecolor='#3f3f46',
+            tickfont=dict(color='#71717a'),
+            title_font=dict(color='#a1a1aa')
+        )
+        fig.update_yaxes(
+            gridcolor='#27272a',
+            linecolor='#3f3f46',
+            tickfont=dict(color='#71717a'),
+            title_font=dict(color='#a1a1aa')
         )
         
         # Update x-axis labels
