@@ -561,13 +561,14 @@ with st.sidebar:
     
     # Update interval dropdown
     interval_options = {
+        "1 second": 1,
+        "2 seconds": 2,
         "5 seconds": 5,
         "10 seconds": 10,
         "30 seconds": 30,
         "1 minute": 60,
         "2 minutes": 120,
-        "5 minutes": 300,
-        "10 minutes": 600
+        "5 minutes": 300
     }
     
     # Find the index of current interval
@@ -660,7 +661,7 @@ elif st.session_state.current_page == "appointments":
 st.title("VehicleCare AI - Predictive Maintenance Dashboard")
 st.markdown("Real-time vehicle telemetry monitoring and anomaly detection")
 
-# Auto-update logic
+# Auto-update logic - Generate new data based on interval
 if st.session_state.auto_update:
     current_time = time.time()
     
@@ -670,30 +671,24 @@ if st.session_state.auto_update:
     
     time_since_last_update = current_time - st.session_state.last_update_time
     
-    # Sync detector history with session state history before detection
-    # Include latest reading if available to ensure LSTM has most recent data
-    if hasattr(st.session_state.detector, 'sync_history'):
-        history_to_sync = st.session_state.readings_history.copy()
-        if "latest_reading" in st.session_state:
-            # Include latest reading in history for better LSTM predictions
-            history_to_sync.append(st.session_state.latest_reading)
-        st.session_state.detector.sync_history(history_to_sync)
-    
-    # Always generate a new reading when auto-update is enabled
-    # This ensures fresh data is available on each page load
-    reading = st.session_state.simulator.generate_reading()
-    anomaly = st.session_state.detector.detect_anomaly(reading)
-    score = st.session_state.detector.get_anomaly_score(reading)
-    
-    reading["anomaly"] = anomaly
-    reading["anomaly_score"] = score
-    
-    # ALWAYS update latest_reading so display shows current data
-    # This ensures the metrics display updates even if not added to history yet
-    st.session_state.latest_reading = reading
-    
-    # Only add to history if enough time has passed (respects update interval)
+    # Check if it's time to generate new data
     if time_since_last_update >= st.session_state.update_interval:
+        # Sync detector history with session state history before detection
+        if hasattr(st.session_state.detector, 'sync_history'):
+            st.session_state.detector.sync_history(st.session_state.readings_history)
+        
+        # Generate new reading
+        reading = st.session_state.simulator.generate_reading()
+        anomaly = st.session_state.detector.detect_anomaly(reading)
+        score = st.session_state.detector.get_anomaly_score(reading)
+        
+        reading["anomaly"] = anomaly
+        reading["anomaly_score"] = score
+        
+        # Update latest reading for display
+        st.session_state.latest_reading = reading
+        
+        # Add to history
         st.session_state.readings_history.append(reading)
         
         if anomaly == -1:
@@ -715,29 +710,15 @@ if st.session_state.auto_update:
         
         st.session_state.last_update_time = current_time
         
-        # Sync detector history after adding to session state
-        # This ensures detector has the latest readings for next prediction
+        # Sync detector history after adding
         if hasattr(st.session_state.detector, 'sync_history'):
             st.session_state.detector.sync_history(st.session_state.readings_history)
     
     # Calculate time until next update
-    time_until_next = st.session_state.update_interval - time_since_last_update
+    time_until_next = max(0, st.session_state.update_interval - time_since_last_update)
     
     # Show refresh status
-    st.info(f"⏱️ Auto-updating every {st.session_state.update_interval}s | Next update in {int(max(0, time_until_next))}s")
-    
-    # Use Streamlit's auto-rerun mechanism
-    # Sleep for a short interval then rerun to update data
-    import time as time_module
-    
-    if time_until_next <= 0:
-        # Time to update - rerun immediately to refresh data
-        st.rerun()
-    else:
-        # Wait for 1 second then rerun to check again
-        # This creates a polling effect that keeps data fresh
-        time_module.sleep(1.0)
-        st.rerun()
+    st.info(f"⏱️ Auto-updating every {st.session_state.update_interval}s | Next update in {int(time_until_next)}s | Total readings: {len(st.session_state.readings_history)}")
 
 # Display latest anomaly alert with notification banner
 if st.session_state.anomalies_detected:
@@ -967,4 +948,17 @@ if latest:
             st.dataframe(anomalies_df, use_container_width=True)
 else:
     st.info("Click 'Generate New Reading' or enable 'Auto Update' to start monitoring")
+
+# ============================================
+# AUTO-REFRESH MECHANISM (at end of page)
+# ============================================
+# This runs AFTER all content is rendered, so dashboard is visible
+if st.session_state.auto_update:
+    import time as time_module
+    
+    # Wait for the update interval, then refresh
+    # Using a shorter sleep to be responsive
+    sleep_time = min(st.session_state.update_interval, 1.0)
+    time_module.sleep(sleep_time)
+    st.rerun()
 
